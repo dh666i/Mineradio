@@ -64,6 +64,7 @@
   ${IfNot} ${Errors}
     FileWrite $0 "Mineradio install root$\r$\n"
     FileWrite $0 "appId=com.mineradio.desktop$\r$\n"
+    FileWrite $0 "edition=community$\r$\n"
     FileClose $0
   ${EndIf}
 !macroend
@@ -806,7 +807,7 @@ Function MineradioWelcomeShow
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
   SetCtlColors $0 "3257F7" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 42u 226u 30u "Mineradio 安装"
+  ${NSD_CreateLabel} 22u 42u 226u 30u "Mineradio 社区二开版"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioHeroFont 1
   SetCtlColors $0 "111217" "FFFFFF"
@@ -815,7 +816,7 @@ Function MineradioWelcomeShow
   Pop $0
   SetCtlColors $0 "" "3257F7"
 
-  ${NSD_CreateLabel} 22u 96u 238u 24u "为这台电脑安装 Mineradio。默认安装到 D:\Mineradio，下一步可以自由选择其它位置。"
+  ${NSD_CreateLabel} 22u 96u 238u 24u "非原项目官方发行。默认安装到 D:\Mineradio，下一步可以选择其它专属目录。"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioBodyFont 1
   SetCtlColors $0 "4B5263" "FFFFFF"
@@ -992,6 +993,10 @@ FunctionEnd
 Function un.MineradioRemoveInstalledFiles
   SetOutPath $TEMP
 
+  RMDir /r "$INSTDIR\locales"
+  RMDir /r "$INSTDIR\resources"
+  RMDir /r "$INSTDIR\swiftshader"
+
   Delete "$INSTDIR\${PRODUCT_FILENAME}.exe"
   Delete "$INSTDIR\Uninstall ${PRODUCT_FILENAME}.exe"
   Delete "$INSTDIR\uninstallerIcon.ico"
@@ -1014,10 +1019,7 @@ Function un.MineradioRemoveInstalledFiles
   Delete "$INSTDIR\vk_swiftshader_icd.json"
   Delete "$INSTDIR\vulkan-1.dll"
 
-  RMDir "$INSTDIR\locales"
-  RMDir "$INSTDIR\resources"
-  RMDir "$INSTDIR\swiftshader"
-
+  Delete "$INSTDIR\${MINERADIO_INSTALL_MARKER}"
   RMDir "$INSTDIR"
 FunctionEnd
 !endif

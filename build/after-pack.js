@@ -56,9 +56,9 @@ module.exports = async function afterPack(context) {
   execFileSync(rceditPath, [
     exePath,
     '--set-icon', iconPath,
-    '--set-version-string', 'FileDescription', 'Mineradio',
-    '--set-version-string', 'ProductName', 'Mineradio',
-    '--set-version-string', 'CompanyName', 'Mineradio',
+    '--set-version-string', 'FileDescription', 'Mineradio Community Edition',
+    '--set-version-string', 'ProductName', 'Mineradio Community Edition',
+    '--set-version-string', 'CompanyName', 'dh666i',
     '--set-version-string', 'OriginalFilename', `${appName}.exe`,
     '--set-file-version', version,
     '--set-product-version', version
