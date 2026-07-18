@@ -4,9 +4,6 @@
   "version": "1.2.0",
   "description": "沉浸式音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "dh666i",
-  "contributors": [
-    "XxHuberrr (original author)"
-  ],
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
