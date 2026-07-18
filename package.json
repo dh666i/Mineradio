@@ -1,9 +1,21 @@
 {
   "name": "mineradio",
   "productName": "Mineradio",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "沉浸式音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
-  "author": "Mineradio",
+  "author": "dh666i",
+  "contributors": [
+    "XxHuberrr (original author)"
+  ],
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dh666i/Mineradio.git"
+  },
+  "homepage": "https://github.com/dh666i/Mineradio#readme",
+  "bugs": {
+    "url": "https://github.com/dh666i/Mineradio/issues"
+  },
   "main": "desktop/main.js",
   "private": true,
   "scripts": {
@@ -64,7 +76,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "XxHuberrr",
+        "owner": "dh666i",
         "repo": "Mineradio"
       }
     ]
@@ -72,10 +84,10 @@
   "mineradio": {
     "update": {
       "provider": "github",
-      "owner": "XxHuberrr",
+      "owner": "dh666i",
       "repo": "Mineradio",
       "preview": true,
-      "preferMirrors": true,
+      "preferMirrors": false,
       "mirrors": [
         "https://gh.llkk.cc/",
         "https://ghfast.top/",

@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.2.0 - 2026-07-18
+
+- 将 Home 施工区升级为网易云每日推荐：首页展示日期、封面与前三首预览，并提供完整推荐列表。
+- 每日推荐支持播放全部、随机播放和从指定歌曲开始播放；登录过期、请求失败和跨日缓存都有明确状态。
+- 接入网易云私人 FM 独立队列，支持自动预取和队尾补歌；FM 不受普通单曲循环或随机模式干扰。
+- 搜索结果新增播放全部、批量加入队列和随机播放；跨网易云/QQ 音乐按歌曲、歌手和版本去重，网易云登录时优先使用网易云结果。
+- 新增每日推荐、私人 FM 与 FM trash 本地 API，并修复网易云认证过期时的状态处理。
+- 本地服务默认只监听 `127.0.0.1`，增加 Host、Origin 和 Fetch Metadata 校验，降低局域网暴露、跨站请求与 DNS rebinding 风险。
+- 异步推荐播放增加播放意图保护，避免慢请求覆盖用户后来启动的歌曲。
+- 更新项目归属、发布目标和应用内更新源到 `dh666i/Mineradio`，并保留原项目及 GPL-3.0 归属说明。
+
 ## v1.1.1
 
 - P0 installer safety fix: installation now defaults to the first available non-C drive from `D:\Mineradio` through `Z:\Mineradio`; it falls back to `C:\Mineradio` only when no D-Z drive exists.

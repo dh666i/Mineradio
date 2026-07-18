@@ -33,6 +33,8 @@ const {
   personalized,
   recommend_resource,
   recommend_songs,
+  personal_fm,
+  fm_trash,
   dj_detail,
   dj_program,
   dj_hot,
@@ -55,7 +57,7 @@ const { fileURLToPath } = require('url');
 const { analyzePodcastDjStream, analyzePodcastDjIntro } = require('./dj-analyzer');
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = process.env.HOST || '127.0.0.1';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const COOKIE_FILE = process.env.COOKIE_FILE || path.join(__dirname, '.cookie');
 const QQ_COOKIE_FILE = process.env.QQ_COOKIE_FILE || path.join(__dirname, '.qq-cookie');
@@ -198,12 +200,84 @@ function serveStatic(res, filePath) {
 function sendJSON(res, data, status) {
   res.writeHead(status || 200, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     'Pragma': 'no-cache',
     'Expires': '0',
   });
   res.end(JSON.stringify(data));
+}
+const API_POST_ONLY_ROUTES = new Set([
+  '/api/update/download',
+  '/api/update/patch',
+  '/api/personal-fm/trash',
+  '/api/qq/login/cookie',
+  '/api/qq/logout',
+  '/api/login/cookie',
+  '/api/login/qr/check',
+  '/api/logout',
+  '/api/song/like',
+  '/api/playlist/create',
+  '/api/playlist/add-song',
+]);
+const API_MUTATING_POST_ROUTES = new Set([...API_POST_ONLY_ROUTES, '/api/beatmap/cache']);
+
+function parseLoopbackAuthority(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL('http://' + raw);
+    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '::1') return null;
+    return { hostname, port: parsed.port || '80' };
+  } catch (e) {
+    return null;
+  }
+}
+function parseLoopbackHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (parsed.protocol !== 'http:') return null;
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '::1') return null;
+    return { hostname, port: parsed.port || '80' };
+  } catch (e) {
+    return null;
+  }
+}
+function isSameLoopbackEndpoint(left, right) {
+  return !!(left && right && left.hostname === right.hostname && left.port === right.port);
+}
+function isLoopbackSocketAddress(value) {
+  const address = String(value || '').toLowerCase().replace(/^\[|\]$/g, '');
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+function isTrustedApiRequest(req) {
+  const host = parseLoopbackAuthority(req.headers.host);
+  const localPort = String((req.socket && req.socket.localPort) || PORT);
+  if (!host || host.port !== localPort || !isLoopbackSocketAddress(req.socket && req.socket.remoteAddress)) return false;
+
+  const fetchSite = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
+  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') return false;
+
+  const origin = String(req.headers.origin || '').trim();
+  if (origin && !isSameLoopbackEndpoint(parseLoopbackHttpUrl(origin), host)) return false;
+
+  const referer = String(req.headers.referer || '').trim();
+  if (!origin && referer && !isSameLoopbackEndpoint(parseLoopbackHttpUrl(referer), host)) return false;
+  return true;
+}
+function guardApiMutation(req, res, pathname) {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (API_POST_ONLY_ROUTES.has(pathname) && method !== 'POST') {
+    sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
+    return false;
+  }
+  if (API_MUTATING_POST_ROUTES.has(pathname) && method === 'POST' && String(req.headers['x-mineradio-request'] || '') !== '1') {
+    sendJSON(res, { ok: false, error: 'UNTRUSTED_MUTATION_REQUEST' }, 403);
+    return false;
+  }
+  return true;
 }
 function readPackageInfo() {
   try {
@@ -1626,13 +1700,38 @@ function isQzoneBackgroundPlaylist(pl) {
   const text = String((pl && pl.name || '') + ' ' + (pl && pl.creator || '')).toLowerCase();
   return /qzone|空间|背景音乐/i.test(text);
 }
-async function requireLogin(res) {
+async function requireLogin(res, responseExtras) {
   const info = await getLoginInfo();
   if (!info.loggedIn || !info.userId) {
-    sendJSON(res, { error: 'LOGIN_REQUIRED', loggedIn: false }, 401);
+    sendJSON(res, { ...(responseExtras || {}), ok: false, error: 'LOGIN_REQUIRED', loggedIn: false }, 401);
     return null;
   }
   return info;
+}
+
+function mapNeteaseSongs(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map(mapSongRecord)
+    .filter(song => song.id && song.name);
+}
+
+function taskStatus(result, label) {
+  if (!result || result.status !== 'fulfilled') {
+    const reason = result && result.reason;
+    const code = normalizeApiCode(reason);
+    return {
+      ok: false,
+      code: code || 0,
+      error: normalizeApiMessage(reason) || reason && reason.message || `${label} failed`,
+    };
+  }
+  const code = normalizeApiCode(result.value);
+  const ok = !code || code === 200;
+  return {
+    ok,
+    code: code || 0,
+    error: ok ? '' : (normalizeApiMessage(result.value) || `${label} failed`),
+  };
 }
 
 // ---------- 业务: 搜索 ----------
@@ -1671,11 +1770,18 @@ async function handleDiscoverHome() {
   const loggedIn = !!(info && info.loggedIn);
   if (!loggedIn) {
     return {
+      ok: false,
       loggedIn: false,
       user: null,
       dailySongs: [],
       playlists: [],
       podcasts: [],
+      sourceStatus: {
+        personalized: { ok: false, error: 'LOGIN_REQUIRED' },
+        podcasts: { ok: false, error: 'LOGIN_REQUIRED' },
+        privatePlaylists: { ok: false, error: 'LOGIN_REQUIRED' },
+        dailySongs: { ok: false, error: 'LOGIN_REQUIRED' },
+      },
       mode: 'starter',
       updatedAt: Date.now(),
     };
@@ -1715,18 +1821,22 @@ async function handleDiscoverHome() {
   if (result[3].status === 'fulfilled' && result[3].value) {
     const body = result[3].value.body || {};
     const raw = body.data && (body.data.dailySongs || body.data.recommend) || body.recommend || [];
-    dailySongs = (Array.isArray(raw) ? raw : [])
-      .map(mapSongRecord)
-      .filter(song => song.id && song.name)
-      .slice(0, 12);
+    dailySongs = mapNeteaseSongs(raw);
   }
 
   return {
+    ok: true,
     loggedIn,
     user: loggedIn ? { userId: info.userId, nickname: info.nickname || '', avatar: info.avatar || '' } : null,
     dailySongs,
     playlists: privatePlaylists.concat(publicPlaylists).slice(0, 10),
     podcasts,
+    sourceStatus: {
+      personalized: taskStatus(result[0], 'Personalized playlists'),
+      podcasts: taskStatus(result[1], 'Podcasts'),
+      privatePlaylists: taskStatus(result[2], 'Private playlists'),
+      dailySongs: taskStatus(result[3], 'Daily recommendations'),
+    },
     updatedAt: Date.now(),
   };
 }
@@ -3210,6 +3320,20 @@ function isNeteaseAuthInvalidPayload(payload) {
   const msg = normalizeApiMessage(payload);
   return /未登录|需要登录|请先登录|login/i.test(msg) && code >= 300;
 }
+function neteaseRouteFailure(err, fallbackError) {
+  const code = normalizeApiCode(err);
+  const loggedIn = !isNeteaseAuthInvalidPayload(err);
+  if (!loggedIn) saveCookie('');
+  return {
+    status: loggedIn ? 500 : 401,
+    body: {
+      ok: false,
+      loggedIn,
+      error: normalizeApiMessage(err) || (err && err.message) || fallbackError,
+      code: code || 0,
+    },
+  };
+}
 async function getLoginInfo() {
   if (!userCookie) return { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
 
@@ -3233,6 +3357,7 @@ async function getLoginInfo() {
     return { loggedIn: false, hasCookie: !!userCookie, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
   } catch (e) {
     console.warn('[Login] account check failed:', e.message);
+    if (isNeteaseAuthInvalidPayload(e)) saveCookie('');
     return { loggedIn: false, hasCookie: !!userCookie, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
   }
 }
@@ -3243,6 +3368,13 @@ async function getLoginInfo() {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost:' + PORT);
   const pn = url.pathname;
+  if (pn.startsWith('/api/')) {
+    if (!isTrustedApiRequest(req)) {
+      sendJSON(res, { ok: false, error: 'UNTRUSTED_API_REQUEST' }, 403);
+      return;
+    }
+    if (!guardApiMutation(req, res, pn)) return;
+  }
 
   if (pn === '/api/app/version') {
     sendJSON(res, {
@@ -3368,6 +3500,120 @@ const server = http.createServer(async (req, res) => {
     }
 
     sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
+    return;
+  }
+
+  if (pn === '/api/recommend/daily') {
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, loggedIn: null, error: 'METHOD_NOT_ALLOWED', songs: [] }, 405);
+      return;
+    }
+    try {
+      const info = await requireLogin(res, { songs: [] });
+      if (!info) return;
+      const result = await recommend_songs({ cookie: userCookie, timestamp: Date.now() });
+      const code = normalizeApiCode(result);
+      if (code && code !== 200) {
+        const loggedIn = !isNeteaseAuthInvalidPayload(result);
+        sendJSON(res, {
+          ok: false,
+          loggedIn,
+          error: normalizeApiMessage(result) || 'DAILY_RECOMMENDATIONS_FAILED',
+          code,
+          songs: [],
+        }, loggedIn ? 502 : 401);
+        return;
+      }
+      const body = result.body || {};
+      const raw = body.data && (body.data.dailySongs || body.data.recommend) || body.recommend || [];
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        songs: mapNeteaseSongs(raw),
+        updatedAt: Date.now(),
+      });
+    } catch (err) {
+      console.error('[DailyRecommendations]', err);
+      const failure = neteaseRouteFailure(err, 'DAILY_RECOMMENDATIONS_FAILED');
+      sendJSON(res, { ...failure.body, songs: [] }, failure.status);
+    }
+    return;
+  }
+
+  if (pn === '/api/personal-fm') {
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, loggedIn: null, error: 'METHOD_NOT_ALLOWED', songs: [] }, 405);
+      return;
+    }
+    try {
+      const info = await requireLogin(res, { songs: [] });
+      if (!info) return;
+      const result = await personal_fm({ cookie: userCookie, timestamp: Date.now() });
+      const code = normalizeApiCode(result);
+      if (code && code !== 200) {
+        const loggedIn = !isNeteaseAuthInvalidPayload(result);
+        sendJSON(res, {
+          ok: false,
+          loggedIn,
+          error: normalizeApiMessage(result) || 'PERSONAL_FM_FAILED',
+          code,
+          songs: [],
+        }, loggedIn ? 502 : 401);
+        return;
+      }
+      const body = result.body || {};
+      const raw = body.data || body.songs || [];
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        songs: mapNeteaseSongs(raw),
+        updatedAt: Date.now(),
+      });
+    } catch (err) {
+      console.error('[PersonalFM]', err);
+      const failure = neteaseRouteFailure(err, 'PERSONAL_FM_FAILED');
+      sendJSON(res, { ...failure.body, songs: [] }, failure.status);
+    }
+    return;
+  }
+
+  if (pn === '/api/personal-fm/trash') {
+    if (req.method !== 'POST') {
+      sendJSON(res, { ok: false, loggedIn: null, error: 'METHOD_NOT_ALLOWED' }, 405);
+      return;
+    }
+    try {
+      const info = await requireLogin(res);
+      if (!info) return;
+      const body = await readRequestBody(req);
+      const id = String(body.id || '').trim();
+      const parsedTime = Number(body.time);
+      const time = Number.isFinite(parsedTime) && parsedTime > 0 ? Math.round(parsedTime) : 25;
+      if (!id) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'MISSING_SONG_ID' }, 400);
+        return;
+      }
+      const result = await fm_trash({ id, time, cookie: userCookie, timestamp: Date.now() });
+      const code = normalizeApiCode(result);
+      if (code && code !== 200) {
+        const loggedIn = !isNeteaseAuthInvalidPayload(result);
+        sendJSON(res, {
+          ok: false,
+          loggedIn,
+          error: normalizeApiMessage(result) || 'PERSONAL_FM_TRASH_FAILED',
+          code,
+          id,
+        }, loggedIn ? 502 : 401);
+        return;
+      }
+      sendJSON(res, { ok: true, loggedIn: true, error: '', id, time, code: code || 200 });
+    } catch (err) {
+      console.error('[PersonalFMTrash]', err);
+      const failure = neteaseRouteFailure(err, 'PERSONAL_FM_TRASH_FAILED');
+      sendJSON(res, failure.body, failure.status);
+    }
     return;
   }
 
@@ -3768,7 +4014,8 @@ const server = http.createServer(async (req, res) => {
   // ---------- 登录: 轮询扫码状态 ----------
   if (pn === '/api/login/qr/check') {
     try {
-      const key = url.searchParams.get('key');
+      const requestBody = await readRequestBody(req);
+      const key = requestBody.key || url.searchParams.get('key');
       let r = await login_qr_check({ key, noCookie: true, timestamp: Date.now() });
       let body = r.body || {};
       let code = Number(body.code || r.code);
@@ -3903,7 +4150,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const info = await requireLogin(res);
       if (!info) return;
-      const body = req.method === 'POST' ? await readRequestBody(req) : {};
+      const body = await readRequestBody(req);
       const id = body.id || url.searchParams.get('id');
       const nextLike = String(body.like != null ? body.like : (url.searchParams.get('like') || 'true')) !== 'false';
       if (!id) { sendJSON(res, { error: 'Missing song id' }, 400); return; }
@@ -3922,7 +4169,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const info = await requireLogin(res);
       if (!info) return;
-      const body = req.method === 'POST' ? await readRequestBody(req) : {};
+      const body = await readRequestBody(req);
       const name = String(body.name || url.searchParams.get('name') || '').trim();
       const privacy = String(body.privacy || url.searchParams.get('privacy') || '0');
       if (!name) { sendJSON(res, { error: 'Missing playlist name' }, 400); return; }
@@ -3941,7 +4188,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const info = await requireLogin(res);
       if (!info) return;
-      const body = req.method === 'POST' ? await readRequestBody(req) : {};
+      const body = await readRequestBody(req);
       const pid = body.pid || url.searchParams.get('pid');
       const id = body.id || body.ids || url.searchParams.get('id') || url.searchParams.get('ids');
       if (!pid || !id) { sendJSON(res, { error: 'Missing playlist id or song id' }, 400); return; }

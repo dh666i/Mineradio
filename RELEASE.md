@@ -1,5 +1,14 @@
 # 发布流程
 
+## 二开仓库发布边界
+
+- 正式仓库：`https://github.com/dh666i/Mineradio`。
+- 上游仓库：`https://github.com/XxHuberrr/Mineradio`，本地 remote 名称固定为 `upstream`。
+- `package.json` 中 `build.publish` 与 `mineradio.update` 必须指向 `dh666i/Mineradio`。
+- 首个二开源码版本为 `1.2.0`；未上传并核验安装包前，不在 README 中声明可下载。
+- 第三方更新镜像默认不优先使用；Release 必须同时提供源码，并保留 GPL、NOTICE 和上游归属。
+- 二开安装包若继续使用 Mineradio 名称、Logo、`appId` 和用户数据目录，必须显著标记非官方；面向公众长期分发前应改用独立产品标识，避免覆盖原版安装和用户数据。
+
 ## v1.1.0 发布边界
 
 - `v1.1.0` 是纯净安装发布版，从当前 `resources/app` 可信源码重新构建。
