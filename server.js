@@ -22,12 +22,17 @@ const {
   artist_detail,
   artist_top_song,
   artist_songs,
+  artist_album,
+  album,
   like: like_song,
   likelist,
   song_like_check,
   playlist_tracks,
   playlist_track_add,
   playlist_create,
+  playlist_update,
+  playlist_delete,
+  song_order_update,
   playlist_detail,
   playlist_track_all,
   personalized,
@@ -55,6 +60,10 @@ const tls = require('tls');
 const { once } = require('events');
 const { fileURLToPath } = require('url');
 const { analyzePodcastDjStream, analyzePodcastDjIntro } = require('./dj-analyzer');
+const {
+  getPlaylistEditRestriction,
+  normalizeNeteaseId,
+} = require('./lib/netease-playlist-policy');
 
 let electronSafeStorage = null;
 try {
@@ -284,6 +293,7 @@ function sendJSON(res, data, status) {
 const API_POST_ONLY_ROUTES = new Set([
   '/api/update/download',
   '/api/update/download/switch',
+  '/api/update/download/cancel',
   '/api/update/patch',
   '/api/personal-fm/trash',
   '/api/qq/login/cookie',
@@ -294,6 +304,10 @@ const API_POST_ONLY_ROUTES = new Set([
   '/api/song/like',
   '/api/playlist/create',
   '/api/playlist/add-song',
+  '/api/playlist/remove-song',
+  '/api/playlist/rename',
+  '/api/playlist/delete',
+  '/api/playlist/reorder-tracks',
 ]);
 const API_MUTATING_POST_ROUTES = new Set([...API_POST_ONLY_ROUTES, '/api/beatmap/cache']);
 
@@ -779,6 +793,9 @@ function classifyUpdateError(err) {
   const code = String(err && err.code || '').trim();
   const message = String(err && err.message || err || '').trim();
   const detail = message || code || '未知错误';
+  if (code === 'UPDATE_DOWNLOAD_CANCELLED') {
+    return { code, reason: '下载已取消。', detail };
+  }
   if (code === 'UPDATE_SOURCE_SWITCH_REQUESTED') {
     return { code, reason: '已手动跳过当前下载线路。', detail };
   }
@@ -1063,6 +1080,8 @@ function publicUpdateJob(job) {
     routing: job.routing || '',
     probing: job.routing === 'probing',
     canSwitch: canSwitchUpdateSource(job),
+    canCancel: canCancelUpdateDownload(job),
+    cancelled: job.status === 'cancelled',
     mode: job.mode || 'installer',
     message: job.message || '',
     restartRequired: !!job.restartRequired,
@@ -1086,6 +1105,44 @@ function activeUpdateJobFor(version) {
 function trimUpdateJobs() {
   const jobs = Array.from(updateDownloadJobs.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   jobs.slice(8).forEach(job => updateDownloadJobs.delete(job.id));
+}
+function canCancelUpdateDownload(job) {
+  return !!(job && (job.status === 'queued' || job.status === 'downloading') && job.routing !== 'verifying');
+}
+function isUpdateDownloadCancelled(job) {
+  return !!(job && (job.cancelRequested || job.status === 'cancelled'));
+}
+function throwIfUpdateDownloadCancelled(job) {
+  if (isUpdateDownloadCancelled(job)) {
+    throw updateError('UPDATE_DOWNLOAD_CANCELLED', 'Update download cancelled');
+  }
+}
+function cleanupUpdateDownloadPartial(job) {
+  if (!job || !job.filePath) return;
+  const tmpPath = job.filePath + '.download';
+  try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+}
+function requestUpdateDownloadCancel(job) {
+  if (!job) return { ok: false, error: 'UPDATE_JOB_NOT_FOUND' };
+  if (job.status === 'cancelled') return publicUpdateJob(job);
+  if (!canCancelUpdateDownload(job)) {
+    return { ok: false, error: 'UPDATE_JOB_NOT_CANCELLABLE', job: publicUpdateJob(job) };
+  }
+  const controller = job.activeAbortController;
+  job.cancelRequested = true;
+  job.switchRequested = false;
+  job.status = 'cancelled';
+  job.routing = 'cancelled';
+  job.speedBps = 0;
+  job.etaSeconds = 0;
+  job.error = '';
+  job.errorReason = '';
+  job.errorDetail = '';
+  job.message = '下载已取消';
+  job.updatedAt = Date.now();
+  if (controller) controller.abort(updateError('UPDATE_DOWNLOAD_CANCELLED', 'Update download cancelled'));
+  cleanupUpdateDownloadPartial(job);
+  return publicUpdateJob(job);
 }
 async function downloadUpdateAsset(job) {
   const tmpPath = job.filePath + '.download';
@@ -1301,12 +1358,19 @@ function requestUpdateSourceSwitch(job) {
   controller.abort(updateError('UPDATE_SOURCE_SWITCH_REQUESTED', 'Manual source switch requested'));
   return Object.assign(publicUpdateJob(job), { switching: true });
 }
-async function probeUpdateDownloadCandidate(candidate, expectedSize) {
+async function probeUpdateDownloadCandidate(candidate, expectedSize, cancelSignal) {
   const targetBytes = Math.min(
     UPDATE_PROBE_RANGE_BYTES,
     Math.max(1, Number(expectedSize || UPDATE_PROBE_RANGE_BYTES) || UPDATE_PROBE_RANGE_BYTES)
   );
   const controller = new AbortController();
+  const cancelProbe = () => controller.abort(
+    cancelSignal && cancelSignal.reason || updateError('UPDATE_DOWNLOAD_CANCELLED', 'Update download cancelled')
+  );
+  if (cancelSignal) {
+    if (cancelSignal.aborted) cancelProbe();
+    else cancelSignal.addEventListener('abort', cancelProbe, { once: true });
+  }
   const startedAt = Date.now();
   const timer = setTimeout(() => controller.abort(), UPDATE_PROBE_TIMEOUT_MS);
   let reader = null;
@@ -1350,6 +1414,7 @@ async function probeUpdateDownloadCandidate(candidate, expectedSize) {
     };
   } finally {
     clearTimeout(timer);
+    if (cancelSignal) cancelSignal.removeEventListener('abort', cancelProbe);
     if (reader) {
       try { await reader.cancel('probe complete'); } catch (_) {}
     }
@@ -1383,6 +1448,7 @@ function hasFasterProbedUpdateCandidate(candidates, currentIndex, currentSpeedBp
 }
 async function rankUpdateDownloadCandidates(job, candidates) {
   const list = Array.isArray(candidates) ? candidates.slice() : [];
+  throwIfUpdateDownloadCancelled(job);
   if (list.length <= 1) return list;
   const maxCandidates = Math.max(1, Math.floor(UPDATE_PROBE_TOTAL_MAX_BYTES / UPDATE_PROBE_RANGE_BYTES));
   const probeTargets = list.slice(0, maxCandidates);
@@ -1395,10 +1461,18 @@ async function rankUpdateDownloadCandidates(job, candidates) {
   job.etaSeconds = 0;
   job.message = '正在测速选择最快下载线路';
   job.updatedAt = Date.now();
-  const results = await Promise.all(probeTargets.map(async (candidate, index) => Object.assign(
-    { index, label: candidate.label || '下载线路' },
-    await probeUpdateDownloadCandidate(candidate, job.expectedSize)
-  )));
+  const controller = new AbortController();
+  job.activeAbortController = controller;
+  let results;
+  try {
+    results = await Promise.all(probeTargets.map(async (candidate, index) => Object.assign(
+      { index, label: candidate.label || '下载线路' },
+      await probeUpdateDownloadCandidate(candidate, job.expectedSize, controller.signal)
+    )));
+  } finally {
+    if (job.activeAbortController === controller) job.activeAbortController = null;
+  }
+  throwIfUpdateDownloadCancelled(job);
   job.probeResults = results.map(result => ({
     label: result.label,
     ok: result.ok,
@@ -1413,12 +1487,30 @@ async function downloadUpdateAssetWithMirrors(job) {
   const initialCandidates = Array.isArray(job.downloadCandidates) && job.downloadCandidates.length
     ? job.downloadCandidates
     : uniqueDownloadCandidates(job.downloadUrl || '');
-  const candidates = await rankUpdateDownloadCandidates(job, initialCandidates);
+  let candidates;
+  try {
+    candidates = await rankUpdateDownloadCandidates(job, initialCandidates);
+  } catch (err) {
+    if (isUpdateDownloadCancelled(job)) {
+      cleanupUpdateDownloadPartial(job);
+      return;
+    }
+    setUpdateJobError(job, err, '下载准备失败');
+    return;
+  }
+  if (isUpdateDownloadCancelled(job)) {
+    cleanupUpdateDownloadPartial(job);
+    return;
+  }
   job.downloadCandidates = candidates;
   job.attempts = candidates.length;
   const failures = [];
   fs.mkdirSync(UPDATE_DOWNLOAD_DIR, { recursive: true });
   for (let i = 0; i < candidates.length; i++) {
+    if (isUpdateDownloadCancelled(job)) {
+      cleanupUpdateDownloadPartial(job);
+      return;
+    }
     const candidate = candidates[i];
     let controller = null;
     try {
@@ -1509,7 +1601,7 @@ async function downloadUpdateAssetWithMirrors(job) {
         try { await reader.cancel(err && err.message || 'download attempt stopped'); } catch (_) {}
         throw err;
       } finally {
-        if (bodyComplete) {
+        if (bodyComplete && !isUpdateDownloadCancelled(job)) {
           job.routing = 'verifying';
           job.message = '正在校验安装包';
           if (job.activeAbortController === controller) job.activeAbortController = null;
@@ -1519,7 +1611,9 @@ async function downloadUpdateAssetWithMirrors(job) {
         await once(writer, 'finish').catch(() => {});
       }
 
+      throwIfUpdateDownloadCancelled(job);
       verifyUpdateFile(tmpPath, job);
+      throwIfUpdateDownloadCancelled(job);
       if (fs.existsSync(job.filePath)) fs.unlinkSync(job.filePath);
       fs.renameSync(tmpPath, job.filePath);
       job.status = 'ready';
@@ -1530,6 +1624,10 @@ async function downloadUpdateAssetWithMirrors(job) {
       job.updatedAt = Date.now();
       return;
     } catch (attemptError) {
+      if (isUpdateDownloadCancelled(job)) {
+        cleanupUpdateDownloadPartial(job);
+        return;
+      }
       const switchedManually = !!job.switchRequested;
       const err = switchedManually
         ? updateError('UPDATE_SOURCE_SWITCH_REQUESTED', 'Manual source switch requested')
@@ -2070,9 +2168,32 @@ function mapSongRecord(s) {
     artists,
     artistId: artists[0] && artists[0].id,
     album: album.name || '',
+    albumId: album.id,
     cover: album.picUrl || album.coverUrl || '',
     duration: s.dt || s.duration || 0,
     fee: s.fee,
+  };
+}
+function mapAlbumRecord(raw) {
+  raw = raw || {};
+  const artists = mapArtists(raw.artists || (raw.artist ? [raw.artist] : []));
+  return {
+    provider: 'netease',
+    source: 'netease',
+    type: 'album',
+    id: raw.id,
+    name: raw.name || '',
+    cover: raw.picUrl || raw.blurPicUrl || raw.coverUrl || '',
+    artist: artists.map(item => item.name).join(' / '),
+    artists,
+    artistId: artists[0] && artists[0].id,
+    songCount: Number(raw.size || raw.songCount || 0) || 0,
+    publishTime: Number(raw.publishTime || raw.publishDate || 0) || 0,
+    albumType: raw.type || '',
+    subType: raw.subType || '',
+    company: raw.company || '',
+    description: raw.description || raw.desc || '',
+    alias: Array.isArray(raw.alias) ? raw.alias.filter(Boolean).map(String) : [],
   };
 }
 function mapDiscoverPlaylist(pl, tag) {
@@ -2115,8 +2236,35 @@ function isQzoneBackgroundPlaylist(pl) {
 }
 async function requireLogin(res, responseExtras) {
   const info = await getLoginInfo();
+  if (info.loginCheckFailed) {
+    sendJSON(res, {
+      ...(responseExtras || {}),
+      ok: false,
+      error: 'LOGIN_STATUS_UNAVAILABLE',
+      message: info.error || '网易云登录状态暂时无法确认',
+      loggedIn: null,
+    }, 502);
+    return null;
+  }
+  if (info.partial && !info.userId) {
+    sendJSON(res, {
+      ...(responseExtras || {}),
+      ok: false,
+      error: 'LOGIN_PROFILE_UNAVAILABLE',
+      message: '网易云账号资料暂时不可用，请稍后重试',
+      loggedIn: true,
+      partial: true,
+    }, 503);
+    return null;
+  }
   if (!info.loggedIn || !info.userId) {
-    sendJSON(res, { ...(responseExtras || {}), ok: false, error: 'LOGIN_REQUIRED', loggedIn: false }, 401);
+    sendJSON(res, {
+      ...(responseExtras || {}),
+      ok: false,
+      error: info.authExpired ? 'LOGIN_EXPIRED' : 'LOGIN_REQUIRED',
+      loggedIn: false,
+      authExpired: !!info.authExpired,
+    }, 401);
     return null;
   }
   return info;
@@ -2150,10 +2298,12 @@ function taskStatus(result, label) {
 // ---------- 业务: 搜索 ----------
 //   优先用 cloudsearch (新接口, 字段更全, picUrl 更稳定)
 //   对于仍然缺失封面的歌曲, 用 song_detail 批量补齐
-async function handleSearch(keywords, limit) {
-  console.log('[Search]', keywords, 'limit:', limit);
-  const result = await cloudsearch({ keywords, limit, cookie: userCookie });
-  const songs = result.body && result.body.result && result.body.result.songs ? result.body.result.songs : [];
+async function handleSearch(keywords, limit, offset) {
+  const pageOffset = Math.max(0, Number(offset || 0) || 0);
+  console.log('[Search]', keywords, 'limit:', limit, 'offset:', pageOffset);
+  const result = await cloudsearch({ keywords, limit, offset: pageOffset, cookie: userCookie, timestamp: Date.now() });
+  const resultBody = result.body && result.body.result || {};
+  const songs = Array.isArray(resultBody.songs) ? resultBody.songs : [];
 
   let mapped = songs.map(s => {
     return mapSongRecord(s);
@@ -2175,7 +2325,14 @@ async function handleSearch(keywords, limit) {
     } catch (e) { console.warn('[Search] backfill failed:', e.message); }
   }
 
-  return mapped;
+  const total = Math.max(0, Number(resultBody.songCount || mapped.length) || 0);
+  return {
+    songs: mapped,
+    total,
+    offset: pageOffset,
+    limit,
+    hasMore: pageOffset + mapped.length < total,
+  };
 }
 
 async function handleDiscoverHome() {
@@ -2736,12 +2893,12 @@ async function buildWeatherRadio(params) {
   let songs = [];
   const settled = await Promise.allSettled(queries.slice(0, 4).map(q => handleSearch(q, 6)));
   settled.forEach(result => {
-    if (result.status === 'fulfilled' && Array.isArray(result.value)) songs = songs.concat(result.value);
+    if (result.status === 'fulfilled' && result.value && Array.isArray(result.value.songs)) songs = songs.concat(result.value.songs);
   });
   if (songs.length < 10 && weather.mood && Array.isArray(weather.mood.keywords)) {
     const more = await Promise.allSettled(weather.mood.keywords.slice(0, 2).map(q => handleSearch(q, 6)));
     more.forEach(result => {
-      if (result.status === 'fulfilled' && Array.isArray(result.value)) songs = songs.concat(result.value);
+      if (result.status === 'fulfilled' && result.value && Array.isArray(result.value.songs)) songs = songs.concat(result.value.songs);
     });
   }
   songs = orderWeatherSongs(songs, weather.mood);
@@ -3090,7 +3247,7 @@ async function qqSmartboxSearch(keywords, limit) {
   const text = await requestText(u.toString(), { headers: QQ_HEADERS });
   const json = parseJSONText(text);
   const items = json && json.data && json.data.song && json.data.song.itemlist;
-  return (Array.isArray(items) ? items : []).slice(0, Math.max(1, Math.min(limit || 6, 10))).map(mapQQSmartSong);
+  return (Array.isArray(items) ? items : []).slice(0, Math.max(1, Math.min(limit || 10, 50))).map(mapQQSmartSong);
 }
 
 async function qqSongDetail(mid, fallback) {
@@ -3151,12 +3308,14 @@ async function handleQQArtistDetail(mid, limit) {
   };
 }
 
-async function handleQQSearch(keywords, limit) {
+async function handleQQSearch(keywords, limit, offset) {
   const kw = String(keywords || '').trim();
-  if (!kw) return [];
-  console.log('[QQSearch]', kw, 'limit:', limit);
-  const base = await qqSmartboxSearch(kw, limit);
-  const detailed = await Promise.all(base.map(async item => {
+  const pageOffset = Math.max(0, Number(offset || 0) || 0);
+  if (!kw) return { songs: [], total: 0, offset: pageOffset, limit, hasMore: false, pagination: 'local' };
+  console.log('[QQSearch]', kw, 'limit:', limit, 'offset:', pageOffset);
+  const base = await qqSmartboxSearch(kw, 50);
+  const page = base.slice(pageOffset, pageOffset + limit);
+  const detailed = await Promise.all(page.map(async item => {
     try { return await qqSongDetail(item.mid, item); }
     catch (e) {
       console.warn('[QQSearch] detail failed:', item.mid, e.message);
@@ -3164,12 +3323,20 @@ async function handleQQSearch(keywords, limit) {
     }
   }));
   const seen = new Set();
-  return detailed.filter(song => {
+  const songs = detailed.filter(song => {
     const key = song && (song.mid || song.id || (song.name + '|' + song.artist));
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return !!song.name;
   });
+  return {
+    songs,
+    total: base.length,
+    offset: pageOffset,
+    limit,
+    hasMore: pageOffset + page.length < base.length,
+    pagination: 'local',
+  };
 }
 
 async function handleQQSongUrl(mid, mediaMid, qualityPreference) {
@@ -3747,32 +3914,191 @@ function neteaseRouteFailure(err, fallbackError) {
     },
   };
 }
+function createApiRouteError(error, status, message, extras) {
+  const err = new Error(message || error);
+  err.apiRouteError = error;
+  err.httpStatus = status || 500;
+  err.responseExtras = extras || {};
+  return err;
+}
+function sendNeteaseApiFailure(res, err, fallbackError, responseExtras, protectedRoute) {
+  const extras = { ...(responseExtras || {}) };
+  if (err && err.apiRouteError) {
+    sendJSON(res, {
+      ...extras,
+      ...(err.responseExtras || {}),
+      ok: false,
+      error: err.apiRouteError,
+      message: err.message || err.apiRouteError,
+    }, err.httpStatus || 500);
+    return;
+  }
+  const code = normalizeApiCode(err);
+  const authExpired = isNeteaseAuthInvalidPayload(err);
+  if (authExpired) saveCookie('');
+  const status = authExpired && protectedRoute ? 401 : (code === 404 ? 404 : 502);
+  sendJSON(res, {
+    ...extras,
+    ok: false,
+    loggedIn: protectedRoute ? !authExpired : null,
+    authExpired: !!authExpired,
+    requiresLogin: !!protectedRoute,
+    error: authExpired && protectedRoute ? 'LOGIN_EXPIRED' : fallbackError,
+    code: code || 0,
+    message: normalizeApiMessage(err) || (err && err.message) || fallbackError,
+  }, status);
+}
+function throwOnNeteaseApiFailure(result, fallbackError) {
+  const body = result && (result.body || result) || {};
+  let failed = body;
+  let code = normalizeApiCode(result);
+  if (code >= 200 && code < 300) {
+    failed = Object.keys(body)
+      .filter(key => key.startsWith('/api/'))
+      .map(key => body[key])
+      .find(value => {
+        const nestedCode = normalizeApiCode(value);
+        return nestedCode && (nestedCode < 200 || nestedCode >= 300);
+      });
+    if (!failed) return body;
+    code = normalizeApiCode(failed);
+  } else if (!code) {
+    failed = body;
+  }
+  const err = new Error(normalizeApiMessage(failed) || normalizeApiMessage(result) || fallbackError);
+  err.status = code || 502;
+  err.body = failed || body;
+  throw err;
+}
+async function callPublicNetease(call) {
+  const hadCookie = !!userCookie;
+  let authExpired = false;
+  let result;
+  try {
+    result = await call(userCookie);
+  } catch (err) {
+    if (!hadCookie || !isNeteaseAuthInvalidPayload(err)) throw err;
+    saveCookie('');
+    authExpired = true;
+    result = await call('');
+  }
+  if (hadCookie && isNeteaseAuthInvalidPayload(result)) {
+    saveCookie('');
+    authExpired = true;
+    result = await call('');
+  }
+  return { result, authExpired };
+}
+function normalizeNeteaseIds(value, max) {
+  let raw = value;
+  if (typeof raw === 'string' && /^\s*\[/.test(raw)) {
+    try { raw = JSON.parse(raw); } catch (_) {}
+  }
+  const values = Array.isArray(raw) ? raw : String(raw == null ? '' : raw).split(',');
+  const ids = values.map(normalizeNeteaseId).filter(Boolean);
+  if (!ids.length || ids.length !== values.length || ids.length > (max || 500) || new Set(ids).size !== ids.length) return null;
+  return ids;
+}
+function escapeNeteaseBatchString(value) {
+  return JSON.stringify(String(value == null ? '' : value)).slice(1, -1);
+}
+async function getOwnedPlaylist(pid, userId) {
+  let detail;
+  try {
+    detail = await playlist_detail({ id: pid, s: 0, cookie: userCookie, timestamp: Date.now() });
+  } catch (err) {
+    if (normalizeApiCode(err) === 404) throw createApiRouteError('PLAYLIST_NOT_FOUND', 404, '歌单不存在');
+    throw err;
+  }
+  const code = normalizeApiCode(detail);
+  if (code === 404) throw createApiRouteError('PLAYLIST_NOT_FOUND', 404, '歌单不存在');
+  throwOnNeteaseApiFailure(detail, 'PLAYLIST_DETAIL_FAILED');
+  const body = detail.body || detail || {};
+  const playlist = body.playlist;
+  if (!playlist || !normalizeNeteaseId(playlist.id)) {
+    throw createApiRouteError('PLAYLIST_NOT_FOUND', 404, '歌单不存在');
+  }
+  const editRestriction = getPlaylistEditRestriction(playlist, userId);
+  if (editRestriction === 'PLAYLIST_NOT_OWNED') {
+    throw createApiRouteError('PLAYLIST_NOT_OWNED', 403, '只能修改自己创建的歌单', { loggedIn: true, pid });
+  }
+  if (editRestriction === 'PLAYLIST_SPECIAL_READ_ONLY') {
+    throw createApiRouteError('PLAYLIST_SPECIAL_READ_ONLY', 403, '系统特殊歌单不能通过歌单管理功能修改', { loggedIn: true, pid });
+  }
+  return playlist;
+}
 async function getLoginInfo() {
   if (!userCookie) return { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
+
+  let completedChecks = 0;
+  let lastError = null;
+  let authInvalid = false;
 
   // login_status 对二维码 cookie 的资料刷新通常更及时；失败时再降级到 user_account。
   try {
     const st = await login_status({ cookie: userCookie, timestamp: Date.now() });
+    completedChecks++;
     const body = st.body || {};
     const data = body.data || body;
     const info = normalizeLoginInfo(data.profile || body.profile, data.account || body.account, data);
     if (info.loggedIn) return info;
+    authInvalid = isNeteaseAuthInvalidPayload(st);
   } catch (e) {
     console.warn('[Login] login_status failed:', e.message);
+    if (isNeteaseAuthInvalidPayload(e)) authInvalid = true;
+    else lastError = e;
+  }
+
+  if (authInvalid) {
+    saveCookie('');
+    return { loggedIn: false, authExpired: true, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
   }
 
   try {
     const acc = await user_account({ cookie: userCookie, timestamp: Date.now() });
+    completedChecks++;
     const body = acc.body || {};
     const info = normalizeLoginInfo(body.profile, body.account, body);
     if (info.loggedIn) return info;
-    if (isNeteaseAuthInvalidPayload(acc)) saveCookie('');
-    return { loggedIn: false, hasCookie: !!userCookie, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
+    if (isNeteaseAuthInvalidPayload(acc)) authInvalid = true;
   } catch (e) {
     console.warn('[Login] account check failed:', e.message);
-    if (isNeteaseAuthInvalidPayload(e)) saveCookie('');
-    return { loggedIn: false, hasCookie: !!userCookie, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
+    if (isNeteaseAuthInvalidPayload(e)) authInvalid = true;
+    else lastError = e;
   }
+
+  if (authInvalid) {
+    saveCookie('');
+    return { loggedIn: false, authExpired: true, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };
+  }
+  if (completedChecks > 0) {
+    return {
+      loggedIn: true,
+      partial: true,
+      pendingProfile: true,
+      profileUnavailable: true,
+      hasCookie: true,
+      userId: '',
+      nickname: '网易云用户',
+      avatar: '',
+      vipType: 0,
+      vipLevel: 'none',
+      isVip: false,
+      isSvip: false,
+      vipLabel: '无VIP',
+    };
+  }
+  return {
+    loggedIn: false,
+    hasCookie: true,
+    loginCheckFailed: true,
+    error: normalizeApiMessage(lastError) || (lastError && lastError.message) || 'LOGIN_STATUS_UNAVAILABLE',
+    vipType: 0,
+    vipLevel: 'none',
+    isVip: false,
+    isSvip: false,
+    vipLabel: '无VIP',
+  };
 }
 
 // ====================================================================
@@ -3839,6 +4165,20 @@ const server = http.createServer(async (req, res) => {
     }
     const job = updateDownloadJobs.get(id);
     const result = requestUpdateSourceSwitch(job);
+    const status = result.ok ? 200 : (result.error === 'UPDATE_JOB_NOT_FOUND' ? 404 : 409);
+    sendJSON(res, result, status);
+    return;
+  }
+
+  if (pn === '/api/update/download/cancel') {
+    const body = await readRequestBody(req);
+    const id = String(body && body.id || '').trim();
+    if (!/^[a-z0-9-]{8,96}$/i.test(id)) {
+      sendJSON(res, { ok: false, error: 'UPDATE_JOB_ID_INVALID' }, 400);
+      return;
+    }
+    const job = updateDownloadJobs.get(id);
+    const result = requestUpdateDownloadCancel(job);
     const status = result.ok ? 200 : (result.error === 'UPDATE_JOB_NOT_FOUND' ? 404 : 409);
     sendJSON(res, result, status);
     return;
@@ -4077,23 +4417,30 @@ const server = http.createServer(async (req, res) => {
   // ---------- 搜索 ----------
   if (pn === '/api/search') {
     try {
-      const kw    = url.searchParams.get('keywords') || '';
-      const limit = parseInt(url.searchParams.get('limit') || '20');
-      const songs = await handleSearch(kw, limit);
-      sendJSON(res, { songs });
-    } catch (err) { console.error('[Search]', err); sendJSON(res, { error: err.message, songs: [] }, 500); }
+      const kw = String(url.searchParams.get('keywords') || '').trim().slice(0, 120);
+      const limit = Math.max(1, Math.min(50, parseInt(url.searchParams.get('limit') || '20', 10) || 20));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+      if (!kw) { sendJSON(res, { ok: false, error: 'MISSING_KEYWORDS', songs: [], total: 0, offset, limit, hasMore: false }, 400); return; }
+      const result = await handleSearch(kw, limit, offset);
+      sendJSON(res, { ok: true, error: '', ...result });
+    } catch (err) {
+      console.error('[Search]', err);
+      sendJSON(res, { ok: false, error: err.message, songs: [], total: 0, hasMore: false }, 500);
+    }
     return;
   }
 
   if (pn === '/api/qq/search') {
     try {
-      const kw = url.searchParams.get('keywords') || '';
-      const limit = Math.max(4, Math.min(12, parseInt(url.searchParams.get('limit') || '8', 10) || 8));
-      const songs = await handleQQSearch(kw, limit);
-      sendJSON(res, { provider: 'qq', songs });
+      const kw = String(url.searchParams.get('keywords') || '').trim().slice(0, 120);
+      const limit = Math.max(1, Math.min(20, parseInt(url.searchParams.get('limit') || '8', 10) || 8));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+      if (!kw) { sendJSON(res, { ok: false, provider: 'qq', error: 'MISSING_KEYWORDS', songs: [], total: 0, offset, limit, hasMore: false, pagination: 'local' }, 400); return; }
+      const result = await handleQQSearch(kw, limit, offset);
+      sendJSON(res, { ok: true, provider: 'qq', error: '', ...result });
     } catch (err) {
       console.error('[QQSearch]', err);
-      sendJSON(res, { provider: 'qq', error: err.message, songs: [] }, 500);
+      sendJSON(res, { ok: false, provider: 'qq', error: err.message, songs: [], total: 0, hasMore: false, pagination: 'local' }, 500);
     }
     return;
   }
@@ -4521,6 +4868,152 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ---------- 专辑搜索 ----------
+  if (pn === '/api/album/search') {
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED', albums: [] }, 405);
+      return;
+    }
+    const keywords = String(url.searchParams.get('keywords') || '').trim().slice(0, 120);
+    const limit = Math.max(1, Math.min(50, parseInt(url.searchParams.get('limit') || '24', 10) || 24));
+    const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+    if (!keywords) {
+      sendJSON(res, { ok: false, error: 'MISSING_KEYWORDS', albums: [], total: 0, empty: true }, 400);
+      return;
+    }
+    try {
+      const requestResult = await callPublicNetease(cookie => cloudsearch({
+        keywords,
+        type: 10,
+        limit,
+        offset,
+        cookie,
+        timestamp: Date.now(),
+      }));
+      const body = throwOnNeteaseApiFailure(requestResult.result, 'ALBUM_SEARCH_FAILED');
+      const result = body.result || {};
+      const albums = (Array.isArray(result.albums) ? result.albums : [])
+        .map(mapAlbumRecord)
+        .filter(item => item.id && item.name);
+      const total = Math.max(0, Number(result.albumCount || albums.length) || 0);
+      sendJSON(res, {
+        ok: true,
+        requiresLogin: false,
+        loggedIn: requestResult.authExpired ? false : null,
+        authExpired: requestResult.authExpired,
+        error: '',
+        keywords,
+        limit,
+        offset,
+        total,
+        hasMore: offset + albums.length < total,
+        empty: albums.length === 0,
+        albums,
+      });
+    } catch (err) {
+      console.error('[AlbumSearch]', err);
+      sendNeteaseApiFailure(res, err, 'ALBUM_SEARCH_FAILED', { albums: [], total: 0, empty: true }, false);
+    }
+    return;
+  }
+
+  // ---------- 专辑详情 / 曲目 ----------
+  if (pn === '/api/album/detail') {
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED', album: null, tracks: [] }, 405);
+      return;
+    }
+    const id = normalizeNeteaseId(url.searchParams.get('id'));
+    if (!id) {
+      sendJSON(res, { ok: false, error: 'INVALID_ALBUM_ID', album: null, tracks: [] }, 400);
+      return;
+    }
+    try {
+      const requestResult = await callPublicNetease(cookie => album({ id, cookie, timestamp: Date.now() }));
+      const body = throwOnNeteaseApiFailure(requestResult.result, 'ALBUM_DETAIL_FAILED');
+      if (!body.album || !normalizeNeteaseId(body.album.id)) {
+        throw createApiRouteError('ALBUM_NOT_FOUND', 404, '专辑不存在');
+      }
+      const mappedAlbum = mapAlbumRecord(body.album);
+      const tracks = mapNeteaseSongs(body.songs || body.tracks || []);
+      if (!mappedAlbum.songCount) mappedAlbum.songCount = tracks.length;
+      sendJSON(res, {
+        ok: true,
+        requiresLogin: false,
+        loggedIn: requestResult.authExpired ? false : null,
+        authExpired: requestResult.authExpired,
+        error: '',
+        empty: tracks.length === 0,
+        album: mappedAlbum,
+        tracks,
+      });
+    } catch (err) {
+      console.error('[AlbumDetail]', err);
+      if (normalizeApiCode(err) === 404 && !err.apiRouteError) {
+        err = createApiRouteError('ALBUM_NOT_FOUND', 404, '专辑不存在');
+      }
+      sendNeteaseApiFailure(res, err, 'ALBUM_DETAIL_FAILED', { album: null, tracks: [] }, false);
+    }
+    return;
+  }
+
+  // ---------- 歌手专辑 ----------
+  if (pn === '/api/artist/albums') {
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED', artist: null, albums: [] }, 405);
+      return;
+    }
+    const id = normalizeNeteaseId(url.searchParams.get('id'));
+    const limit = Math.max(1, Math.min(50, parseInt(url.searchParams.get('limit') || '24', 10) || 24));
+    const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+    if (!id) {
+      sendJSON(res, { ok: false, error: 'INVALID_ARTIST_ID', artist: null, albums: [] }, 400);
+      return;
+    }
+    try {
+      const requestResult = await callPublicNetease(cookie => artist_album({
+        id,
+        limit,
+        offset,
+        cookie,
+        timestamp: Date.now(),
+      }));
+      const body = throwOnNeteaseApiFailure(requestResult.result, 'ARTIST_ALBUMS_FAILED');
+      const albums = (Array.isArray(body.hotAlbums) ? body.hotAlbums : (Array.isArray(body.albums) ? body.albums : []))
+        .map(mapAlbumRecord)
+        .filter(item => item.id && item.name);
+      const rawArtist = body.artist || albums[0] && body.hotAlbums && body.hotAlbums[0] && body.hotAlbums[0].artist || {};
+      const mappedArtists = mapArtists(rawArtist.id ? [rawArtist] : []);
+      sendJSON(res, {
+        ok: true,
+        requiresLogin: false,
+        loggedIn: requestResult.authExpired ? false : null,
+        authExpired: requestResult.authExpired,
+        error: '',
+        id,
+        limit,
+        offset,
+        hasMore: !!body.more,
+        empty: albums.length === 0,
+        artist: {
+          id: rawArtist.id || id,
+          name: rawArtist.name || '',
+          avatar: rawArtist.picUrl || rawArtist.img1v1Url || '',
+          aliases: Array.isArray(rawArtist.alias) ? rawArtist.alias.filter(Boolean).map(String) : [],
+          artists: mappedArtists,
+        },
+        albums,
+      });
+    } catch (err) {
+      console.error('[ArtistAlbums]', err);
+      if (normalizeApiCode(err) === 404 && !err.apiRouteError) {
+        err = createApiRouteError('ARTIST_NOT_FOUND', 404, '歌手不存在');
+      }
+      sendNeteaseApiFailure(res, err, 'ARTIST_ALBUMS_FAILED', { artist: null, albums: [] }, false);
+    }
+    return;
+  }
+
   // ---------- 红心状态 ----------
   if (pn === '/api/song/like/check') {
     try {
@@ -4650,11 +5143,183 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ---------- 从自己的歌单移除歌曲 ----------
+  if (pn === '/api/playlist/remove-song') {
+    try {
+      const info = await requireLogin(res, { removedIds: [] });
+      if (!info) return;
+      const body = await readRequestBody(req);
+      const pid = normalizeNeteaseId(body.pid || url.searchParams.get('pid'));
+      const ids = normalizeNeteaseIds(body.ids != null ? body.ids : body.id, 500);
+      if (!pid || !ids) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_PLAYLIST_OR_SONG_IDS', removedIds: [] }, 400);
+        return;
+      }
+      const playlist = await getOwnedPlaylist(pid, info.userId);
+      const currentIds = new Set((playlist.trackIds || []).map(item => normalizeNeteaseId(item && (item.id || item))).filter(Boolean));
+      const missingIds = ids.filter(id => !currentIds.has(id));
+      if (missingIds.length) {
+        throw createApiRouteError('PLAYLIST_TRACK_NOT_FOUND', 404, '歌单中没有要移除的歌曲', {
+          loggedIn: true,
+          pid,
+          missingIds,
+          removedIds: [],
+        });
+      }
+      const result = await playlist_tracks({
+        op: 'del',
+        pid,
+        tracks: ids.join(','),
+        cookie: userCookie,
+        timestamp: Date.now(),
+      });
+      const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_REMOVE_SONG_FAILED');
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        code: normalizeApiCode(result) || 200,
+        pid,
+        removedIds: ids,
+        trackCount: Math.max(0, Number(playlist.trackCount || currentIds.size) - ids.length),
+        body: resultBody,
+      });
+    } catch (err) {
+      console.error('[PlaylistRemoveSong]', err);
+      sendNeteaseApiFailure(res, err, 'PLAYLIST_REMOVE_SONG_FAILED', { removedIds: [] }, true);
+    }
+    return;
+  }
+
+  // ---------- 重命名自己的歌单 ----------
+  if (pn === '/api/playlist/rename') {
+    try {
+      const info = await requireLogin(res);
+      if (!info) return;
+      const body = await readRequestBody(req);
+      const pid = normalizeNeteaseId(body.pid || url.searchParams.get('pid'));
+      const name = String(body.name || '').trim();
+      if (!pid) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_PLAYLIST_ID' }, 400);
+        return;
+      }
+      if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_PLAYLIST_NAME' }, 400);
+        return;
+      }
+      const playlist = await getOwnedPlaylist(pid, info.userId);
+      const tags = Array.isArray(playlist.tags) ? playlist.tags.join(';') : String(playlist.tags || '');
+      const result = await playlist_update({
+        id: pid,
+        name: escapeNeteaseBatchString(name),
+        desc: escapeNeteaseBatchString(playlist.description || ''),
+        tags: escapeNeteaseBatchString(tags),
+        cookie: userCookie,
+        timestamp: Date.now(),
+      });
+      const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_RENAME_FAILED');
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        code: normalizeApiCode(result) || 200,
+        pid,
+        name,
+        body: resultBody,
+      });
+    } catch (err) {
+      console.error('[PlaylistRename]', err);
+      sendNeteaseApiFailure(res, err, 'PLAYLIST_RENAME_FAILED', {}, true);
+    }
+    return;
+  }
+
+  // ---------- 删除自己的歌单 ----------
+  if (pn === '/api/playlist/delete') {
+    try {
+      const info = await requireLogin(res);
+      if (!info) return;
+      const body = await readRequestBody(req);
+      const pid = normalizeNeteaseId(body.pid || url.searchParams.get('pid'));
+      if (!pid) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_PLAYLIST_ID' }, 400);
+        return;
+      }
+      await getOwnedPlaylist(pid, info.userId);
+      const result = await playlist_delete({ id: pid, cookie: userCookie, timestamp: Date.now() });
+      const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_DELETE_FAILED');
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        code: normalizeApiCode(result) || 200,
+        pid,
+        deleted: true,
+        body: resultBody,
+      });
+    } catch (err) {
+      console.error('[PlaylistDelete]', err);
+      sendNeteaseApiFailure(res, err, 'PLAYLIST_DELETE_FAILED', { deleted: false }, true);
+    }
+    return;
+  }
+
+  // ---------- 更新自己歌单内的完整曲序 ----------
+  if (pn === '/api/playlist/reorder-tracks') {
+    try {
+      const info = await requireLogin(res);
+      if (!info) return;
+      const body = await readRequestBody(req);
+      const pid = normalizeNeteaseId(body.pid || url.searchParams.get('pid'));
+      const ids = normalizeNeteaseIds(body.ids, 10000);
+      if (!pid || !ids) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_PLAYLIST_OR_SONG_IDS' }, 400);
+        return;
+      }
+      if (new Set(ids).size !== ids.length) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'DUPLICATE_SONG_IDS' }, 400);
+        return;
+      }
+      const playlist = await getOwnedPlaylist(pid, info.userId);
+      const currentIds = (playlist.trackIds || []).map(item => normalizeNeteaseId(item && (item.id || item))).filter(Boolean);
+      const requestedSet = new Set(ids);
+      const sameTracks = currentIds.length === ids.length && currentIds.every(id => requestedSet.has(id));
+      if (!sameTracks) {
+        throw createApiRouteError('PLAYLIST_TRACK_ORDER_MISMATCH', 409, '曲序必须包含歌单当前的全部歌曲且不能增删', {
+          loggedIn: true,
+          pid,
+          expectedTrackCount: currentIds.length,
+          receivedTrackCount: ids.length,
+        });
+      }
+      const result = await song_order_update({
+        pid,
+        ids: JSON.stringify(ids.map(Number)),
+        cookie: userCookie,
+        timestamp: Date.now(),
+      });
+      const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_REORDER_FAILED');
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        code: normalizeApiCode(result) || 200,
+        pid,
+        ids,
+        body: resultBody,
+      });
+    } catch (err) {
+      console.error('[PlaylistReorder]', err);
+      sendNeteaseApiFailure(res, err, 'PLAYLIST_REORDER_FAILED', {}, true);
+    }
+    return;
+  }
+
   // ---------- 歌词 ----------
   if (pn === '/api/lyric') {
     try {
       const id = url.searchParams.get('id');
-      if (!id) { sendJSON(res, { error: 'Missing song id', lyric: '' }, 400); return; }
+      if (!id) { sendJSON(res, { error: 'Missing song id', lyric: '', tlyric: '', yrc: '', roma: '' }, 400); return; }
       let body = {};
       let source = 'lyric';
       try {
@@ -4675,11 +5340,12 @@ const server = http.createServer(async (req, res) => {
         lyric: (body.lrc && body.lrc.lyric) || '',
         tlyric: (body.tlyric && body.tlyric.lyric) || '',
         yrc: (body.yrc && body.yrc.lyric) || '',
+        roma: (body.romalrc && body.romalrc.lyric) || (body.roma && body.roma.lyric) || '',
         source,
       });
     } catch (err) {
       console.error('[Lyric]', err);
-      sendJSON(res, { error: err.message, lyric: '' }, 500);
+      sendJSON(res, { error: err.message, lyric: '', tlyric: '', yrc: '', roma: '' }, 500);
     }
     return;
   }

@@ -15,6 +15,14 @@ if ($env:OS -ne 'Windows_NT') {
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $package = Get-Content -Raw (Join-Path $projectRoot 'package.json') | ConvertFrom-Json
 $distDir = Join-Path $projectRoot $package.build.directories.output
+$thumbprintPath = Join-Path $PSScriptRoot 'expected-thumbprint.txt'
+if (-not (Test-Path -LiteralPath $thumbprintPath -PathType Leaf)) {
+    throw "Expected signing thumbprint file was not found: $thumbprintPath"
+}
+$expectedSignerThumbprint = (Get-Content -Raw -LiteralPath $thumbprintPath).Trim().ToUpperInvariant()
+if ($expectedSignerThumbprint -notmatch '^[0-9A-F]{40}$') {
+    throw "Invalid expected signing thumbprint: $expectedSignerThumbprint"
+}
 $appExecutable = Join-Path $distDir "win-unpacked\$($package.build.win.executableName).exe"
 $elevateExecutable = Join-Path $distDir 'win-unpacked\resources\elevate.exe'
 $targets = @($appExecutable)
@@ -27,7 +35,6 @@ if ($Target -eq 'nsis') {
     $targets += Join-Path $distDir $installerName
 }
 
-$expectedSignerThumbprint = ''
 foreach ($file in $targets) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw "Expected signed artifact was not found: $file"
@@ -44,9 +51,7 @@ foreach ($file in $targets) {
         throw "The Authenticode signature does not include a timestamp: $file"
     }
     $signerThumbprint = [string]$signature.SignerCertificate.Thumbprint
-    if ([string]::IsNullOrWhiteSpace($expectedSignerThumbprint)) {
-        $expectedSignerThumbprint = $signerThumbprint
-    } elseif ($signerThumbprint -ne $expectedSignerThumbprint) {
+    if ($signerThumbprint -ne $expectedSignerThumbprint) {
         throw "Signer certificate mismatch for ${file}. Expected $expectedSignerThumbprint, found $signerThumbprint."
     }
 

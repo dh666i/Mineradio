@@ -1,7 +1,7 @@
 {
   "name": "mineradio",
   "productName": "Mineradio",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Mineradio Windows 桌面音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "dh666i",
   "license": "GPL-3.0-only",
@@ -17,6 +17,10 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "npm run test:core && npm run test:integration",
+    "test:core": "node --test test/core/*.test.js",
+    "test:integration": "node --test test/integration/*.test.js",
+    "check:core": "node --check public/js/core/version.js && node --check public/js/core/queue-session.js && node --check public/js/core/lyrics.js && node --check public/js/core/network-errors.js && npm run test:core",
     "cert:self-sign": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/generate-self-signed-cert.ps1",
     "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target nsis",
     "build:win:dir": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target dir",
@@ -40,6 +44,7 @@
       "desktop/**/*",
       "public/**/*",
       "build/**/*",
+      "lib/**/*",
       "server.js",
       "dj-analyzer.js",
       "package.json",

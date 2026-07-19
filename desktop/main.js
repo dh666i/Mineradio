@@ -25,6 +25,7 @@ let wallpaperState = {};
 let htmlFullscreenActive = false;
 let windowFullscreenActive = false;
 let mainWindowStateTimer = null;
+let backgroundRuntimePolicy = 'auto';
 const registeredGlobalHotkeys = new Map();
 let systemMediaState = {
   hasTrack: false,
@@ -37,6 +38,7 @@ let systemMediaState = {
 const taskbarMediaIcons = new Map();
 const diagnosticEvents = [];
 const adaptiveLoginWindows = new Map();
+const invalidatedLoginSessions = { netease: false, qq: false };
 let legacyUserDataPath = '';
 const PROTECTED_CREDENTIAL_PREFIX = 'mineradio-safe-storage-v1:';
 
@@ -196,9 +198,6 @@ const CHROMIUM_PERFORMANCE_SWITCHES = [
   ['enable-oop-rasterization'],
   ['enable-zero-copy'],
   ['enable-accelerated-2d-canvas'],
-  ['disable-background-timer-throttling'],
-  ['disable-renderer-backgrounding'],
-  ['disable-backgrounding-occluded-windows'],
   ['force_high_performance_gpu'],
   ['use-angle', 'd3d11'],
 ];
@@ -561,6 +560,83 @@ function getSenderWindow(event) {
   return BrowserWindow.fromWebContents(event.sender);
 }
 
+function isTrustedMainUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    return parsed.protocol === 'http:'
+      && parsed.hostname === '127.0.0.1'
+      && Number(parsed.port) === mainServerPort;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isTrustedMainRenderer(event) {
+  if (!event || !event.sender || !mainWindow || mainWindow.isDestroyed()) return false;
+  if (event.sender.id !== mainWindow.webContents.id) return false;
+  if (event.senderFrame && event.senderFrame.parent) return false;
+  return isTrustedMainUrl(event.senderFrame && event.senderFrame.url || event.sender.getURL() || '');
+}
+
+function normalizeBackgroundRuntimePolicy(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  return mode === 'keep' || mode === 'release' ? mode : 'auto';
+}
+
+function applyBackgroundRuntimePolicy(value) {
+  backgroundRuntimePolicy = normalizeBackgroundRuntimePolicy(value);
+  const backgroundThrottling = backgroundRuntimePolicy !== 'keep';
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.setBackgroundThrottling(backgroundThrottling);
+  }
+  return {
+    ok: true,
+    mode: backgroundRuntimePolicy,
+    backgroundThrottling,
+    explicitKeepAlive: backgroundRuntimePolicy === 'keep',
+  };
+}
+
+function normalizeUpdateJobId(value) {
+  const id = String(value || '').trim();
+  return /^(?:(?:patch|cached)-)?[a-z0-9]{6,24}-[a-z0-9]{4,16}$/i.test(id) ? id : '';
+}
+
+async function callLocalUpdateApi(pathname, options = {}) {
+  if (!mainServerPort) return { ok: false, error: 'UPDATE_SERVICE_UNAVAILABLE' };
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 6000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const method = String(options.method || 'GET').toUpperCase();
+    const headers = {};
+    if (options.body) headers['Content-Type'] = 'application/json';
+    if (method !== 'GET' && method !== 'HEAD') headers['X-Mineradio-Request'] = '1';
+    const response = await fetch(`http://127.0.0.1:${mainServerPort}${pathname}`, {
+      method,
+      headers: Object.keys(headers).length ? headers : undefined,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      redirect: 'error',
+      signal: controller.signal,
+    });
+    const raw = await response.text();
+    let payload = {};
+    try { payload = raw ? JSON.parse(raw) : {}; }
+    catch (_) { return { ok: false, error: 'UPDATE_SERVICE_RESPONSE_INVALID' }; }
+    if (!response.ok && payload.ok !== false) payload.ok = false;
+    if (!response.ok && !payload.error) payload.error = `UPDATE_SERVICE_HTTP_${response.status}`;
+    return payload;
+  } catch (e) {
+    const timedOut = e && e.name === 'AbortError';
+    return {
+      ok: false,
+      error: timedOut ? 'UPDATE_SERVICE_TIMEOUT' : 'UPDATE_SERVICE_UNAVAILABLE',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function displayForWindow(win) {
   if (win && !win.isDestroyed()) return screen.getDisplayMatching(win.getBounds());
   return screen.getPrimaryDisplay();
@@ -870,6 +946,119 @@ function neteaseCookieHasLogin(cookieText) {
   return !!obj.MUSIC_U;
 }
 
+function describeMusicLoginSession(provider, cookieText, options = {}) {
+  const cookie = String(cookieText || '');
+  const loggedIn = provider === 'qq' ? qqCookieHasLogin(cookie) : neteaseCookieHasLogin(cookie);
+  const playbackReady = provider === 'qq' ? qqCookieHasPlaybackLogin(cookie) : loggedIn;
+  const partial = loggedIn && !playbackReady;
+  const defaultState = loggedIn
+    ? (partial ? 'partial' : 'authenticated')
+    : (invalidatedLoginSessions[provider] ? 'expired' : 'signed-out');
+  const state = options.state || defaultState;
+  const result = {
+    ok: options.ok == null ? loggedIn : !!options.ok,
+    provider,
+    state,
+    loggedIn,
+    playbackReady,
+    partial,
+    expired: state === 'expired',
+  };
+  if (options.includeCookie && cookie) result.cookie = cookie;
+  if (options.reused) result.reused = true;
+  if (options.cancelled) result.cancelled = true;
+  if (options.offline) result.offline = true;
+  if (options.reason) result.reason = options.reason;
+  if (options.error) result.error = options.error;
+  if (options.message) result.message = options.message;
+  return result;
+}
+
+function successfulMusicLoginResult(provider, cookieText, options = {}) {
+  invalidatedLoginSessions[provider] = false;
+  return describeMusicLoginSession(provider, cookieText, {
+    ok: true,
+    includeCookie: true,
+    reused: !!options.reused,
+  });
+}
+
+async function persistMusicLoginResult(provider, result) {
+  const safeResult = { ...(result || {}) };
+  const cookie = String(safeResult.cookie || '');
+  delete safeResult.cookie;
+  if (!safeResult.ok || !cookie) return safeResult;
+
+  const route = provider === 'qq' ? '/api/qq/login/cookie' : '/api/login/cookie';
+  const persisted = await callLocalUpdateApi(route, {
+    method: 'POST',
+    body: { cookie },
+    timeoutMs: 20000,
+  });
+  if (!persisted || persisted.ok === false || persisted.loggedIn !== true) {
+    return {
+      ...safeResult,
+      ...(persisted || {}),
+      ok: false,
+      loggedIn: false,
+      state: 'unavailable',
+      error: persisted && persisted.error || 'LOGIN_SESSION_PERSIST_FAILED',
+      message: persisted && persisted.message || '登录成功，但本机会话保存失败',
+    };
+  }
+  return {
+    ...safeResult,
+    ...persisted,
+    ok: true,
+    loggedIn: true,
+    sessionPersisted: true,
+  };
+}
+
+function cancelledMusicLoginResult(provider, cookieText) {
+  const label = provider === 'qq' ? 'QQ 音乐' : '网易云';
+  const result = describeMusicLoginSession(provider, cookieText, {
+    ok: false,
+    cancelled: true,
+    reason: invalidatedLoginSessions[provider] ? 'expired' : 'cancelled',
+    error: invalidatedLoginSessions[provider] ? 'LOGIN_SESSION_EXPIRED' : 'LOGIN_CANCELLED',
+    message: invalidatedLoginSessions[provider] ? `${label}登录已失效，请重新登录` : `${label}登录窗口已关闭`,
+  });
+  if (result.loggedIn) return successfulMusicLoginResult(provider, cookieText);
+  return result;
+}
+
+function failedMusicLoginResult(provider, error, cookieText = '') {
+  const rawCode = String(error && (error.code || error.name) || '').toUpperCase();
+  const rawMessage = String(error && (error.message || error.description) || '');
+  const isNetworkFailure = /ERR_(?:INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|CONNECTION|NETWORK|PROXY|TIMED_OUT)|ABORTERROR/.test(`${rawCode} ${rawMessage.toUpperCase()}`);
+  const label = provider === 'qq' ? 'QQ 音乐' : '网易云';
+  return describeMusicLoginSession(provider, cookieText, {
+    ok: false,
+    state: 'unavailable',
+    offline: isNetworkFailure,
+    reason: isNetworkFailure ? 'network' : 'login-window',
+    error: isNetworkFailure ? 'LOGIN_NETWORK_UNAVAILABLE' : 'LOGIN_WINDOW_UNAVAILABLE',
+    message: isNetworkFailure ? `无法连接${label}，请检查网络后重试` : `${label}登录窗口加载失败`,
+  });
+}
+
+function isNavigationAbort(error) {
+  return Number(error && (error.errno || error.code)) === -3
+    || /ERR_ABORTED/i.test(String(error && error.message || ''));
+}
+
+function loginSessionReadFailure(provider) {
+  const label = provider === 'qq' ? 'QQ 音乐' : '网易云';
+  return describeMusicLoginSession(provider, '', {
+    ok: false,
+    state: 'unavailable',
+    reason: 'session-read',
+    error: 'LOGIN_SESSION_READ_FAILED',
+    message: `${label}登录状态读取失败`,
+  });
+}
+
 function isQQCookieDomain(domain) {
   const normalized = String(domain || '').replace(/^\./, '').toLowerCase();
   return normalized === 'qq.com' || normalized.endsWith('.qq.com') || normalized.endsWith('qqmusic.qq.com');
@@ -920,8 +1109,14 @@ async function readNeteaseLoginCookieHeader(cookieSession) {
 
 async function openNeteaseMusicLoginWindow(owner) {
   const cookieSession = session.fromPartition(NETEASE_LOGIN_PARTITION);
-  const initialCookie = await readNeteaseLoginCookieHeader(cookieSession);
-  if (neteaseCookieHasLogin(initialCookie)) return { ok: true, cookie: initialCookie, reused: true };
+  let initialCookie = '';
+  try {
+    initialCookie = await readNeteaseLoginCookieHeader(cookieSession);
+  } catch (e) {
+    console.warn('Netease login session read failed:', e.message);
+    return loginSessionReadFailure('netease');
+  }
+  if (neteaseCookieHasLogin(initialCookie)) return successfulMusicLoginResult('netease', initialCookie, { reused: true });
 
   return new Promise((resolve) => {
     let settled = false;
@@ -951,21 +1146,26 @@ async function openNeteaseMusicLoginWindow(owner) {
     });
     registerAdaptiveLoginWindow(loginWindow, { minWidth: 720, minHeight: 500, margin: 12 });
 
-    const finish = async (result) => {
+    const settle = (result) => {
       if (settled) return;
       settled = true;
       if (pollTimer) clearInterval(pollTimer);
+      resolve(result);
+    };
+
+    const finish = (result) => {
+      if (settled) return;
+      settle(result);
       if (loginWindow && !loginWindow.isDestroyed()) {
         loginWindow.close();
       }
-      resolve(result);
     };
 
     const checkCookies = async () => {
       try {
         const cookie = await readNeteaseLoginCookieHeader(cookieSession);
         if (neteaseCookieHasLogin(cookie)) {
-          finish({ ok: true, cookie });
+          finish(successfulMusicLoginResult('netease', cookie));
         }
       } catch (e) {
         console.warn('Netease login cookie check failed:', e.message);
@@ -1004,29 +1204,40 @@ async function openNeteaseMusicLoginWindow(owner) {
       `, true).catch(() => {});
     });
 
+    loginWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (isMainFrame === false || errorCode === -3 || settled) return;
+      finish(failedMusicLoginResult('netease', { code: errorDescription || errorCode, message: errorDescription }));
+    });
+
     loginWindow.on('ready-to-show', () => loginWindow.show());
     loginWindow.on('closed', async () => {
       if (settled) return;
-      if (pollTimer) clearInterval(pollTimer);
       try {
         const cookie = await readNeteaseLoginCookieHeader(cookieSession);
-        resolve(neteaseCookieHasLogin(cookie)
-          ? { ok: true, cookie, partial: !qqCookieHasPlaybackLogin(cookie) }
-          : { ok: false, cancelled: true, message: '网易云登录窗口已关闭' });
+        settle(cancelledMusicLoginResult('netease', cookie));
       } catch (e) {
-        resolve({ ok: false, error: e.message || '网易云登录窗口已关闭' });
+        console.warn('Netease login close state read failed:', e.message);
+        settle(loginSessionReadFailure('netease'));
       }
     });
 
     pollTimer = setInterval(checkCookies, 1200);
-    loginWindow.loadURL(NETEASE_LOGIN_URL).catch((e) => finish({ ok: false, error: e.message }));
+    loginWindow.loadURL(NETEASE_LOGIN_URL).catch((e) => {
+      if (!isNavigationAbort(e)) finish(failedMusicLoginResult('netease', e));
+    });
   });
 }
 
 async function openQQMusicLoginWindow(owner) {
   const cookieSession = session.fromPartition(QQ_LOGIN_PARTITION);
-  const initialCookie = await readQQLoginCookieHeader(cookieSession);
-  if (qqCookieHasPlaybackLogin(initialCookie)) return { ok: true, cookie: initialCookie, reused: true };
+  let initialCookie = '';
+  try {
+    initialCookie = await readQQLoginCookieHeader(cookieSession);
+  } catch (e) {
+    console.warn('QQ login session read failed:', e.message);
+    return loginSessionReadFailure('qq');
+  }
+  if (qqCookieHasPlaybackLogin(initialCookie)) return successfulMusicLoginResult('qq', initialCookie, { reused: true });
 
   return new Promise((resolve) => {
     let settled = false;
@@ -1057,21 +1268,26 @@ async function openQQMusicLoginWindow(owner) {
     });
     registerAdaptiveLoginWindow(loginWindow, { minWidth: 700, minHeight: 480, margin: 12 });
 
-    const finish = async (result) => {
+    const settle = (result) => {
       if (settled) return;
       settled = true;
       if (pollTimer) clearInterval(pollTimer);
+      resolve(result);
+    };
+
+    const finish = (result) => {
+      if (settled) return;
+      settle(result);
       if (loginWindow && !loginWindow.isDestroyed()) {
         loginWindow.close();
       }
-      resolve(result);
     };
 
     const checkCookies = async () => {
       try {
         const cookie = await readQQLoginCookieHeader(cookieSession);
         if (qqCookieHasPlaybackLogin(cookie)) {
-          finish({ ok: true, cookie });
+          finish(successfulMusicLoginResult('qq', cookie));
         } else if (qqCookieHasLogin(cookie) && !warmupStarted) {
           warmupStarted = true;
           setTimeout(() => {
@@ -1086,10 +1302,15 @@ async function openQQMusicLoginWindow(owner) {
     };
 
     loginWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//i.test(url)) {
-        loginWindow.loadURL(url).catch((e) => console.warn('QQ login popup navigation failed:', e.message));
-      } else {
-        shell.openExternal(url).catch(() => {});
+      try {
+        const parsed = new URL(String(url || ''));
+        if (/^https?:$/.test(parsed.protocol) && isQQCookieDomain(parsed.hostname)) {
+          loginWindow.loadURL(parsed.href).catch((e) => console.warn('QQ login popup navigation failed:', e.message));
+        } else if (/^https?:$/.test(parsed.protocol)) {
+          shell.openExternal(parsed.href).catch(() => {});
+        }
+      } catch (_) {
+        // Ignore malformed or non-web popup targets from the remote login page.
       }
       return { action: 'deny' };
     });
@@ -1110,39 +1331,69 @@ async function openQQMusicLoginWindow(owner) {
       `, true).catch(() => {});
     });
 
+    loginWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (isMainFrame === false || errorCode === -3 || settled) return;
+      finish(failedMusicLoginResult('qq', { code: errorDescription || errorCode, message: errorDescription }, initialCookie));
+    });
+
     loginWindow.on('ready-to-show', () => loginWindow.show());
     loginWindow.on('closed', async () => {
       if (settled) return;
-      if (pollTimer) clearInterval(pollTimer);
       try {
         const cookie = await readQQLoginCookieHeader(cookieSession);
-        resolve(qqCookieHasLogin(cookie)
-          ? { ok: true, cookie }
-          : { ok: false, cancelled: true, message: 'QQ 登录窗口已关闭' });
+        settle(cancelledMusicLoginResult('qq', cookie));
       } catch (e) {
-        resolve({ ok: false, error: e.message || 'QQ 登录窗口已关闭' });
+        console.warn('QQ login close state read failed:', e.message);
+        settle(loginSessionReadFailure('qq'));
       }
     });
 
     pollTimer = setInterval(checkCookies, 1200);
-    loginWindow.loadURL(QQ_LOGIN_URL).catch((e) => finish({ ok: false, error: e.message }));
+    loginWindow.loadURL(QQ_LOGIN_URL).catch((e) => {
+      if (!isNavigationAbort(e)) finish(failedMusicLoginResult('qq', e, initialCookie));
+    });
   });
 }
 
-async function clearQQMusicLoginSession() {
+async function readMusicLoginSessionState(provider) {
+  try {
+    const cookieSession = session.fromPartition(provider === 'qq' ? QQ_LOGIN_PARTITION : NETEASE_LOGIN_PARTITION);
+    const cookie = provider === 'qq'
+      ? await readQQLoginCookieHeader(cookieSession)
+      : await readNeteaseLoginCookieHeader(cookieSession);
+    return describeMusicLoginSession(provider, cookie, { ok: true });
+  } catch (e) {
+    console.warn(`${provider} login state read failed:`, e.message);
+    return loginSessionReadFailure(provider);
+  }
+}
+
+async function clearQQMusicLoginSession(reason = 'logout') {
   const cookieSession = session.fromPartition(QQ_LOGIN_PARTITION);
   await cookieSession.clearStorageData({
     storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage'],
   });
-  return { ok: true };
+  const expired = String(reason || '').toLowerCase() === 'expired';
+  invalidatedLoginSessions.qq = expired;
+  return describeMusicLoginSession('qq', '', {
+    ok: true,
+    state: expired ? 'expired' : 'signed-out',
+    reason: expired ? 'expired' : 'logout',
+  });
 }
 
-async function clearNeteaseMusicLoginSession() {
+async function clearNeteaseMusicLoginSession(reason = 'logout') {
   const cookieSession = session.fromPartition(NETEASE_LOGIN_PARTITION);
   await cookieSession.clearStorageData({
     storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage'],
   });
-  return { ok: true };
+  const expired = String(reason || '').toLowerCase() === 'expired';
+  invalidatedLoginSessions.netease = expired;
+  return describeMusicLoginSession('netease', '', {
+    ok: true,
+    state: expired ? 'expired' : 'signed-out',
+    reason: expired ? 'expired' : 'logout',
+  });
 }
 
 function getAdaptiveMainMinimumSize(win) {
@@ -1673,6 +1924,16 @@ ipcMain.handle('desktop-window-get-state', (event) => {
   return getWindowState(getSenderWindow(event));
 });
 
+ipcMain.handle('mineradio-background-policy-get', (event) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  return applyBackgroundRuntimePolicy(backgroundRuntimePolicy);
+});
+
+ipcMain.handle('mineradio-background-policy-set', (event, mode) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  return applyBackgroundRuntimePolicy(mode);
+});
+
 ipcMain.handle('desktop-window-close', (event) => {
   getSenderWindow(event)?.close();
 });
@@ -1810,19 +2071,52 @@ ipcMain.handle('mineradio-import-json-file', async (event) => {
 });
 
 ipcMain.handle('netease-music-open-login', async (event) => {
-  return openNeteaseMusicLoginWindow(getSenderWindow(event));
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  const result = await openNeteaseMusicLoginWindow(getSenderWindow(event));
+  return persistMusicLoginResult('netease', result);
 });
 
-ipcMain.handle('netease-music-clear-login', async () => {
-  return clearNeteaseMusicLoginSession();
+ipcMain.handle('netease-music-login-state', async (event) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  return readMusicLoginSessionState('netease');
+});
+
+ipcMain.handle('netease-music-clear-login', async (event, reason) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  return clearNeteaseMusicLoginSession(reason);
 });
 
 ipcMain.handle('qq-music-open-login', async (event) => {
-  return openQQMusicLoginWindow(getSenderWindow(event));
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  const result = await openQQMusicLoginWindow(getSenderWindow(event));
+  return persistMusicLoginResult('qq', result);
 });
 
-ipcMain.handle('qq-music-clear-login', async () => {
-  return clearQQMusicLoginSession();
+ipcMain.handle('qq-music-login-state', async (event) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  return readMusicLoginSessionState('qq');
+});
+
+ipcMain.handle('qq-music-clear-login', async (event, reason) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  return clearQQMusicLoginSession(reason);
+});
+
+ipcMain.handle('mineradio-update-download-status', async (event, jobId) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  const id = normalizeUpdateJobId(jobId);
+  if (!id) return { ok: false, error: 'UPDATE_JOB_ID_INVALID' };
+  return callLocalUpdateApi(`/api/update/download/status?id=${encodeURIComponent(id)}`);
+});
+
+ipcMain.handle('mineradio-update-download-cancel', async (event, jobId) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  const id = normalizeUpdateJobId(jobId);
+  if (!id) return { ok: false, error: 'UPDATE_JOB_ID_INVALID' };
+  return callLocalUpdateApi('/api/update/download/cancel', {
+    method: 'POST',
+    body: { id },
+  });
 });
 
 ipcMain.handle('mineradio-open-update-installer', async (_event, filePath) => {
@@ -2023,13 +2317,19 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      backgroundThrottling: false,
+      backgroundThrottling: backgroundRuntimePolicy !== 'keep',
     },
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (/^https?:\/\//i.test(String(url || ''))) shell.openExternal(url).catch(() => {});
     return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedMainUrl(url)) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(String(url || ''))) shell.openExternal(url).catch(() => {});
   });
 
   mainWindow.webContents.once('did-finish-load', () => {

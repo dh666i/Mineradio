@@ -9,6 +9,10 @@
 <script src="vendor/three.r128.min.js"></script>
 <script src="vendor/music-tempo.min.js"></script>
 <script src="vendor/gsap.min.js"></script>
+<script src="js/core/version.js"></script>
+<script src="js/core/queue-session.js"></script>
+<script src="js/core/lyrics.js"></script>
+<script src="js/core/network-errors.js"></script>
 <script>
 try {
   document.documentElement.classList.add(localStorage.getItem('mineradio-diy-player-mode-v1') === '1' ? 'diy-mode-preload' : 'simple-mode-preload');
@@ -1909,6 +1913,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
   box-shadow:0 16px 34px rgba(0,0,0,.30)!important;
 }
 </style>
+<link rel="stylesheet" href="css/v140.css">
 </head>
 <body>
 <div id="desktop-window-shell">
@@ -1974,13 +1979,13 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
       <svg id="search-icon" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       <input id="search-input" type="text" placeholder="搜索歌曲、歌手..." autocomplete="off" spellcheck="false">
     </div>
-    <div id="search-mode-tabs" class="search-mode-tabs" role="tablist" aria-label="Search mode">
-      <button id="search-mode-song" class="active" type="button" onclick="setSearchMode('song')" aria-selected="true">All</button>
-      <button id="search-mode-netease" type="button" onclick="setSearchMode('netease')" aria-selected="false">NE</button>
-      <button id="search-mode-qq" type="button" onclick="setSearchMode('qq')" aria-selected="false">QQ</button>
-      <button id="search-mode-podcast" type="button" onclick="setSearchMode('podcast')" aria-selected="false">Podcast</button>
+    <div id="search-mode-tabs" class="search-mode-tabs" role="tablist" aria-label="搜索范围">
+      <button id="search-mode-song" class="active" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('song')" aria-selected="true">综合</button>
+      <button id="search-mode-netease" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('netease')" aria-selected="false">网易云</button>
+      <button id="search-mode-qq" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('qq')" aria-selected="false">QQ 音乐</button>
+      <button id="search-mode-podcast" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('podcast')" aria-selected="false">播客</button>
     </div>
-    <div id="search-results"></div>
+    <div id="search-results" role="tabpanel" aria-labelledby="search-mode-song"></div>
   </div>
   <div id="upload-actions">
     <button id="upload-btn" class="icon-btn" onclick="document.getElementById('file-input').click()" title="导入音乐或封面">
@@ -2008,7 +2013,6 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
           <button class="home-chip home-primary-chip" id="home-daily-play-btn" type="button" onclick="playHomeDaily()" aria-label="播放全部每日推荐"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>播放全部</button>
           <button class="home-chip" id="home-daily-detail-btn" type="button" onclick="openDailyRecommendDetail()">查看完整</button>
           <button class="home-chip" id="home-personal-fm-btn" type="button" onclick="startHomePersonalFm()">私人 FM</button>
-          <button class="home-chip home-console-chip" type="button" onclick="openHomePlayerConsole()">播放器控制台</button>
         </div>
         <div class="home-daily-cover-stack" aria-hidden="true">
           <div class="home-daily-cover back-a" id="home-daily-cover-a"></div>
@@ -2025,17 +2029,11 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div class="home-card-sub" id="home-weather-card-sub">打开左侧歌单库</div>
         <div class="home-card-art" id="home-weather-art"></div>
       </button>
-      <button class="home-card" data-home-tone="mix" type="button" onclick="playHomeSong(0)">
-        <div class="home-card-label">Daily</div>
-        <div class="home-card-title" id="home-daily-title">每日推荐</div>
-        <div class="home-card-sub" id="home-daily-sub">登录后同步你的今日歌曲</div>
-        <div class="home-card-art" id="home-daily-art"></div>
-      </button>
-      <button class="home-card" data-home-tone="playlist" type="button" onclick="startHomePersonalFm()">
-        <div class="home-card-label">FM</div>
-        <div class="home-card-title" id="home-private-title">私人电台</div>
-        <div class="home-card-sub" id="home-private-sub">从你的推荐和歌单里开播</div>
-        <div class="home-card-art" id="home-private-art"></div>
+      <button class="home-card" data-home-tone="liked" type="button" onclick="openHomeLikedMusic()">
+        <div class="home-card-label">Liked</div>
+        <div class="home-card-title">红心歌曲</div>
+        <div class="home-card-sub">打开网易云喜欢的音乐</div>
+        <div class="home-card-art home-liked-art" aria-hidden="true"></div>
       </button>
       <button class="home-card" data-home-tone="mix" type="button" onclick="playHomeRecent()">
         <div class="home-card-label">Continue</div>
@@ -2043,17 +2041,11 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div class="home-card-sub" id="home-continue-sub">最近播放会出现在这里</div>
         <div class="home-card-art" id="home-continue-art"></div>
       </button>
-      <button class="home-card" data-home-tone="local" type="button" onclick="openHomeInsight()">
-        <div class="home-card-label">Profile</div>
-        <div class="home-card-title" id="home-profile-title">听歌画像</div>
-        <div class="home-card-sub" id="home-profile-sub">播放几首后生成偏好</div>
-        <div class="home-card-art" id="home-profile-art"></div>
-      </button>
-      <button class="home-card" data-home-tone="local" type="button" onclick="playHomeSong(2)">
-        <div class="home-card-label">Song</div>
-        <div class="home-card-title" id="home-library-title">常听歌手</div>
-        <div class="home-card-sub" id="home-library-sub">你的偏好会在这里汇总</div>
-        <div class="home-card-art" id="home-library-art"></div>
+      <button class="home-card" data-home-tone="queue" type="button" onclick="openHomeQueue()">
+        <div class="home-card-label">Up next</div>
+        <div class="home-card-title" id="home-queue-title">接下来播放</div>
+        <div class="home-card-sub" id="home-queue-sub">队列会保留到下次启动</div>
+        <div class="home-card-art home-queue-art" aria-hidden="true"></div>
       </button>
     </div>
 
@@ -2072,6 +2064,9 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
   <button id="user-capsule-hide-btn" class="user-capsule-hide-btn" type="button" onclick="toggleUserCapsuleAutoHide(event)" title="自动隐藏账号胶囊">‹</button>
   <button id="home-btn" class="icon-btn" onclick="goHome()" title="回到 Home" aria-label="回到 Home">
     <svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path d="M3 10.8 12 3l9 7.8"/><path d="M5 10v10h14V10"/><path d="M9.5 20v-5h5v5"/></svg>
+  </button>
+  <button id="settings-btn" class="icon-btn" type="button" onclick="openSettingsModal()" title="设置" aria-label="打开设置">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.14.38.36.72.66 1 .3.25.68.4 1.08.4H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.6Z"/></svg>
   </button>
   <button id="user-btn" class="icon-btn logged-out" onclick="onUserBtnClick()" title="登录账号">
     <span class="login-word">登录</span>
@@ -2344,19 +2339,19 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
   </div>
 </div>
 
-<!-- 歌单/队列面板 (左侧贴边自动显示, 无关闭按钮) -->
+<!-- 音乐库 (左侧贴边自动显示) -->
 <div id="playlist-panel">
   <div class="queue-head">
-    <div><div class="fx-title">歌单 / 队列</div><div class="fx-sub">QUEUE · 鼠标移开自动隐藏</div></div>
+    <div><div class="fx-title">音乐库</div><div class="fx-sub">LIBRARY · 歌单与接下来播放</div></div>
     <div class="queue-head-act">
       <button id="playlist-pin-btn" class="fx-mini-btn ghost playlist-pin-btn" onclick="togglePlaylistPanelPinned()" title="常开歌单" aria-label="常开歌单"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6"/><path d="M5 15l4 4"/><path d="M14 4l-2 5-4 4-3 2 4 4 2-3 4-4 5-2z"/><path d="M9 19l-4 4"/></svg></button>
       <button class="fx-mini-btn ghost" onclick="shuffleQueue()">随机</button>
     </div>
   </div>
   <div class="panel-tabs">
-    <button id="tab-queue" class="panel-tab active" onclick="switchPlaylistTab('queue')">当前队列</button>
-    <button id="tab-pl" class="panel-tab" onclick="switchPlaylistTab('playlists')">我的歌单</button>
-    <button id="tab-podcast" class="panel-tab" onclick="switchPlaylistTab('podcasts')">我的播客</button>
+    <button id="tab-queue" class="panel-tab active" onclick="switchPlaylistTab('queue')">接下来播放</button>
+    <button id="tab-pl" class="panel-tab" onclick="switchPlaylistTab('playlists')">歌单</button>
+    <button id="tab-podcast" class="panel-tab" onclick="switchPlaylistTab('podcasts')">播客</button>
   </div>
   <div id="queue-pane">
     <div class="queue-toolbar">
@@ -2490,7 +2485,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
     </div>
     <div id="mini-queue-list" class="mini-queue-list"></div>
   </div>
-  <div id="progress-bar"><div id="progress-fill"></div><div id="progress-thumb" aria-hidden="true"></div></div>
+  <div id="progress-bar" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div><div id="progress-thumb" aria-hidden="true"></div></div>
   <div id="controls">
     <div class="control-cluster actions">
       <div class="control-track">
@@ -2514,14 +2509,18 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
       <button id="collect-btn" class="ctrl-btn" onclick="openCollectModalForCurrent()" title="收藏到歌单"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
     </div>
     <div class="control-cluster transport">
+    <button id="podcast-back-btn" class="ctrl-btn podcast-control" type="button" onclick="seekPlaybackBy(-15)" title="后退 15 秒" aria-label="后退 15 秒"><span class="skip-time">-15</span></button>
     <button id="play-mode-btn" class="ctrl-btn" onclick="cyclePlayMode()" title="播放顺序"><svg id="play-mode-icon" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
     <button id="prev-btn" class="ctrl-btn" onclick="prevTrack()" title="上一首"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
     <button id="play-btn" class="ctrl-btn" onclick="togglePlay()" title="播放/暂停"><svg id="play-icon" width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
     <button id="next-btn" class="ctrl-btn" onclick="nextTrack()" title="下一首"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
     <button id="mini-queue-btn" class="ctrl-btn" onclick="toggleMiniQueue(event)" title="当前队列"><svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></button>
+    <button id="podcast-forward-btn" class="ctrl-btn podcast-control" type="button" onclick="seekPlaybackBy(15)" title="前进 15 秒" aria-label="前进 15 秒"><span class="skip-time">+15</span></button>
     </div>
     <div class="control-cluster modes">
     <button class="ctrl-btn lyrics-toggle-btn" onclick="toggleLyricsPanel()" title="歌词"><span class="lyrics-word-icon">词</span></button>
+    <button id="lyric-display-mode-btn" class="ctrl-btn" type="button" onclick="cycleLyricDisplayMode()" title="歌词显示：原文" aria-label="切换歌词显示模式"><span class="lyrics-word-icon">译</span></button>
+    <button id="playback-rate-btn" class="ctrl-btn podcast-control rate-control" type="button" onclick="cyclePlaybackRate()" title="播放速度"><span id="playback-rate-label">1×</span></button>
     <div id="volume-control" class="volume-control">
       <button id="volume-btn" class="ctrl-btn" onclick="toggleVolumePanel(event)" title="音量 / 静音"><svg id="volume-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15 9.5a4 4 0 0 1 0 5"/></svg></button>
       <div class="volume-popover" onclick="event.stopPropagation()">
@@ -2530,6 +2529,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
       </div>
     </div>
     <button id="controls-hide-btn" class="ctrl-btn active" onclick="toggleControlsAutoHide()" title="控制条自动隐藏"><svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 8h14"/><path d="M8 12h8"/><path d="M10 16h4"/></svg></button>
+    <button id="sleep-timer-btn" class="ctrl-btn" type="button" onclick="cycleSleepTimer()" title="睡眠定时" aria-label="设置睡眠定时"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
     <button id="immersive-btn" class="ctrl-btn" onclick="toggleImmersiveMode()" title="全沉浸式" aria-label="全沉浸式" aria-pressed="false"><svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M15 4h4a1 1 0 0 1 1 1v4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/><path d="M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="2.2"/></svg></button>
     <button class="ctrl-btn fullscreen-toggle-btn" onclick="toggleFullscreen()" title="全屏 (F)"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7V3h4"/><path d="M21 7V3h-4"/><path d="M3 17v4h4"/><path d="M21 17v4h-4"/></svg></button>
     <div id="time-display">0:00 / 0:00</div>
@@ -2566,7 +2566,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 登录模态 -->
 <div id="login-modal" class="modal-mask">
-  <div class="modal dual-login-modal">
+  <div class="modal dual-login-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
     <div class="login-platform-tabs" id="login-platform-tabs">
       <button id="login-provider-netease" class="netease active" type="button" onclick="setLoginProvider('netease')">网易云</button>
       <button id="login-provider-qq" class="qq" type="button" onclick="setLoginProvider('qq')">QQ 音乐</button>
@@ -2602,8 +2602,8 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 用户模态 -->
 <div id="user-modal" class="modal-mask">
-  <div class="modal dual-user-modal">
-    <h2>账号信息</h2>
+  <div class="modal dual-user-modal" role="dialog" aria-modal="true" aria-labelledby="user-modal-heading">
+    <h2 id="user-modal-heading">账号信息</h2>
     <div id="account-provider-chip" class="account-provider-chip netease"><span class="account-source-dot netease"></span><span>网易云音乐</span></div>
     <img id="user-modal-avatar" style="width:72px;height:72px;border-radius:50%;margin:0 auto 12px;object-fit:cover;background:rgba(255,255,255,0.1);display:block">
     <div id="user-modal-name" style="font-size:15px;margin-bottom:4px"></div>
@@ -2627,8 +2627,8 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 封面裁剪模态 -->
 <div id="cover-crop-modal" class="modal-mask">
-  <div class="modal cover-crop-modal">
-    <h2>裁剪封面</h2>
+  <div class="modal cover-crop-modal" role="dialog" aria-modal="true" aria-labelledby="cover-crop-heading">
+    <h2 id="cover-crop-heading">裁剪封面</h2>
     <div class="cover-crop-layout">
       <div id="cover-crop-stage" class="cover-crop-stage">
         <img id="cover-crop-img" alt="">
@@ -2650,8 +2650,8 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 收藏到歌单模态 -->
 <div id="collect-modal" class="modal-mask">
-  <div class="modal collect-modal">
-    <h2>收藏到歌单</h2>
+  <div class="modal collect-modal" role="dialog" aria-modal="true" aria-labelledby="collect-heading">
+    <h2 id="collect-heading">收藏到歌单</h2>
     <div id="collect-current" class="collect-current"></div>
     <div class="collect-create">
       <input id="collect-new-name" type="text" placeholder="新建歌单名称" autocomplete="off" maxlength="40">
@@ -2665,8 +2665,8 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 </div>
 
 <div id="local-beat-modal" class="modal-mask">
-  <div class="modal local-beat-modal">
-    <h2>本地节奏分析</h2>
+  <div class="modal local-beat-modal" role="dialog" aria-modal="true" aria-labelledby="local-beat-heading">
+    <h2 id="local-beat-heading">本地节奏分析</h2>
     <div class="local-beat-track">
       <div id="local-beat-title" class="local-beat-track-title">本地歌曲</div>
       <div id="local-beat-sub" class="local-beat-track-sub">选择一种电影视角分析方式</div>
@@ -2690,8 +2690,8 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 </div>
 
 <div id="custom-lyric-modal" class="modal-mask">
-  <div class="modal custom-lyric-modal">
-    <h2>自定义歌词</h2>
+  <div class="modal custom-lyric-modal" role="dialog" aria-modal="true" aria-labelledby="custom-lyric-heading">
+    <h2 id="custom-lyric-heading">自定义歌词</h2>
     <div class="custom-lyric-track">
       <div id="custom-lyric-title" class="custom-lyric-title">当前歌曲</div>
       <div id="custom-lyric-sub" class="custom-lyric-sub">支持 LRC 时间轴，也可以直接输入纯文本歌词</div>
@@ -2707,7 +2707,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 </div>
 
 <div id="track-detail-modal" class="modal-mask">
-  <div class="modal track-detail-modal">
+  <div class="modal track-detail-modal" role="dialog" aria-modal="true" aria-labelledby="track-detail-heading">
     <h2 id="track-detail-heading">歌曲详情</h2>
     <div id="track-detail-body"></div>
     <div class="btn-row">
@@ -2717,14 +2717,15 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 </div>
 
 <div id="update-modal" class="modal-mask">
-  <div class="modal update-modal">
+  <div class="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
     <div class="update-panel-inner">
       <div class="update-panel-head">
         <div>
           <div class="update-kicker">MINERADIO</div>
-          <div id="update-modal-title" class="update-title">New release</div>
-          <div id="update-modal-version" class="update-version">v1.3.2</div>
+          <div id="update-modal-title" class="update-title">发现新版本</div>
+          <div id="update-modal-version" class="update-version">v1.4.0</div>
         </div>
+        <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
       <div class="update-hero">
         <div id="update-hero-main" class="update-hero-main">电影镜头更稳，音源兜底更顺。</div>
@@ -2739,14 +2740,75 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <button id="update-switch-btn" class="update-secondary-btn update-switch-btn" type="button" onclick="switchUpdateDownloadLine()" hidden>
           <span id="update-switch-label">切换线路</span>
         </button>
-        <button class="update-secondary-btn" type="button" onclick="closeUpdatePanel()">取消</button>
+        <button id="update-cancel-btn" class="update-secondary-btn" type="button" onclick="cancelOrCloseUpdateDownload()">关闭窗口</button>
       </div>
-      <div id="update-footnote" class="update-footnote">预览版只演示更新手感，不会真的下载安装。</div>
+      <div class="update-status-grid" aria-live="polite">
+        <div><span>线路</span><strong id="update-route-status">等待下载</strong></div>
+        <div><span>速度</span><strong id="update-speed-status">--</strong></div>
+        <div><span>剩余</span><strong id="update-eta-status">--</strong></div>
+      </div>
+      <div id="update-footnote" class="update-footnote">下载前会验证文件摘要与签名。</div>
     </div>
   </div>
 </div>
 
-<div id="toast"></div>
+<div id="settings-modal" class="modal-mask">
+  <div class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
+    <div class="settings-head">
+      <div><div class="settings-kicker">MINERADIO</div><h2 id="settings-heading">设置</h2></div>
+      <button class="settings-close" type="button" onclick="closeSettingsModal()" aria-label="关闭设置">×</button>
+    </div>
+    <div class="settings-layout">
+      <nav class="settings-nav" role="tablist" aria-label="设置分类">
+        <button class="active" type="button" role="tab" aria-selected="true" data-settings-tab="playback">播放</button>
+        <button type="button" role="tab" aria-selected="false" data-settings-tab="performance">性能</button>
+        <button type="button" role="tab" aria-selected="false" data-settings-tab="shortcuts">快捷键</button>
+        <button type="button" role="tab" aria-selected="false" data-settings-tab="update">更新与数据</button>
+      </nav>
+      <div class="settings-content">
+        <section class="settings-page active" data-settings-page="playback">
+          <h3>播放体验</h3>
+          <label class="settings-row"><span><b>控制栏自动收起</b><small>收起后保留常驻迷你播放器</small></span><input id="settings-controls-autohide" type="checkbox"></label>
+          <label class="settings-row"><span><b>减少动态效果</b><small>关闭持续浮动和非必要转场</small></span><input id="settings-reduced-motion" type="checkbox"></label>
+          <div class="settings-field"><span><b>默认音质</b><small>高音质不可用时自动降级</small></span><select id="settings-quality"><option value="jymaster">超清母带</option><option value="hires">高清臻音</option><option value="lossless">无损</option><option value="exhigh">极高</option><option value="standard">标准</option></select></div>
+        </section>
+        <section class="settings-page" data-settings-page="performance">
+          <h3>性能与后台</h3>
+          <div id="settings-performance-background"></div>
+          <div id="settings-performance-quality"></div>
+          <div id="settings-live-background"></div>
+        </section>
+        <section class="settings-page" data-settings-page="shortcuts">
+          <h3>快捷键</h3>
+          <p>媒体键、全局快捷键和播放器键盘操作可在这里统一配置。</p>
+          <button class="modal-btn primary" type="button" onclick="openHotkeySettingsFromSettings()">配置快捷键</button>
+        </section>
+        <section class="settings-page" data-settings-page="update">
+          <h3>更新与数据</h3>
+          <div class="settings-action-grid">
+            <button class="modal-btn primary" type="button" onclick="checkForUpdatesFromSettings()">检查更新</button>
+            <button class="modal-btn" type="button" onclick="restoreLatestSettingsBackup()">恢复备份</button>
+            <button class="modal-btn" type="button" onclick="exportDiagnostics()">导出诊断</button>
+          </div>
+          <div id="settings-version" class="settings-version">Mineradio</div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="album-detail-modal" class="modal-mask">
+  <div class="modal album-detail-modal" role="dialog" aria-modal="true" aria-labelledby="album-detail-heading">
+    <div class="album-detail-head">
+      <div id="album-detail-cover" class="album-detail-cover"></div>
+      <div class="album-detail-meta"><div class="album-detail-kicker">ALBUM</div><h2 id="album-detail-heading">专辑详情</h2><div id="album-detail-sub"></div><div class="album-detail-actions"><button class="modal-btn primary" type="button" onclick="playAlbumDetailAll()">播放全部</button><button class="modal-btn" type="button" onclick="addAlbumDetailToQueue()">加入队列</button></div></div>
+      <button class="album-detail-close" type="button" onclick="closeAlbumDetail()" aria-label="关闭专辑详情">×</button>
+    </div>
+    <div id="album-detail-list" class="album-detail-list"></div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="source-fallback-notice" aria-live="polite">
   <div class="source-fallback-head">
     <div id="source-fallback-title" class="source-fallback-title">自动换源</div>
@@ -2938,8 +3000,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.3.2',
-  version: '1.3.2',
+  currentVersion: '1.4.0',
+  version: '1.4.0',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -2962,6 +3024,7 @@ var updatePreviewState = {
   downloadJobStatus: '',
   canSwitch: null,
   switchingLine: false,
+  cancelRequested: false,
   message: '',
   restartRequired: false,
   patchFallbackTried: false,
@@ -8686,7 +8749,17 @@ function lyricThreeColor(css, fallback, minLum) {
   return c;
 }
 
-var STAGE_LYRIC_MAX_LINES = 1;
+var STAGE_LYRIC_MAX_LINES = 2;
+
+function splitLyricDisplayText(text) {
+  var lines = String(text || '').split(/\r?\n/).map(function(line){
+    return line.replace(/\s+/g, ' ').trim();
+  }).filter(Boolean);
+  if (lines.length > STAGE_LYRIC_MAX_LINES) {
+    lines = lines.slice(0, STAGE_LYRIC_MAX_LINES - 1).concat(lines.slice(STAGE_LYRIC_MAX_LINES - 1).join(' '));
+  }
+  return lines.length ? lines : [''];
+}
 
 function makeLyricMask(text) {
   var canvas = document.createElement('canvas');
@@ -8694,41 +8767,51 @@ function makeLyricMask(text) {
   canvas.width = W; canvas.height = H;
   var ctx = canvas.getContext('2d');
   var maxWidth = W - 190;
-  var maxLines = STAGE_LYRIC_MAX_LINES;
   var fontSize = 128;
-  text = String(text || '').replace(/\s+/g, ' ').trim();
-  var lines = [text];
+  var lines = splitLyricDisplayText(text);
+  var lineScales = lines.map(function(_line, index){ return index === 0 ? 1 : 0.68; });
   var widest = 1;
   for (; fontSize >= 42; fontSize -= 4) {
-    ctx.font = lyricFontCss(fontSize);
-    lines = maxLines > 1 && lyricMeasureText(ctx, text, fontSize) > maxWidth ? wrapLyricText(ctx, text, maxWidth, maxLines, fontSize) : [text];
     widest = 1;
-    for (var li = 0; li < lines.length; li++) widest = Math.max(widest, lyricMeasureText(ctx, lines[li], fontSize));
+    for (var li = 0; li < lines.length; li++) {
+      var measureSize = fontSize * lineScales[li];
+      ctx.font = lyricFontCss(measureSize);
+      widest = Math.max(widest, lyricMeasureText(ctx, lines[li], measureSize));
+    }
     if (widest <= maxWidth) break;
   }
-  ctx.font = lyricFontCss(fontSize);
   if (!lines.length) lines = [''];
   widest = 1;
-  for (var mi = 0; mi < lines.length; mi++) widest = Math.max(widest, lyricMeasureText(ctx, lines[mi], fontSize));
+  var primaryWidth = 1;
+  for (var mi = 0; mi < lines.length; mi++) {
+    var finalMeasureSize = fontSize * lineScales[mi];
+    ctx.font = lyricFontCss(finalMeasureSize);
+    var measuredLineWidth = lyricMeasureText(ctx, lines[mi], finalMeasureSize);
+    if (mi === 0) primaryWidth = measuredLineWidth;
+    widest = Math.max(widest, measuredLineWidth);
+  }
   var width = Math.min(maxWidth, widest);
-  var fitScaleX = maxLines <= 1 && widest > maxWidth ? Math.max(0.68, maxWidth / widest) : 1;
+  var fitScaleX = widest > maxWidth ? Math.max(0.68, maxWidth / widest) : 1;
   if (fitScaleX < 1) width = Math.min(maxWidth, widest * fitScaleX);
+  primaryWidth = Math.min(maxWidth, primaryWidth * fitScaleX);
   var lineHeight = fontSize * (lines.length > 1 ? 1.02 : 1.0) * lyricLineHeightFactor();
   var blockH = fontSize + (lines.length - 1) * lineHeight;
   var x = W / 2, y0 = H / 2 - blockH / 2 + fontSize * 0.82;
   ctx.clearRect(0, 0, W, H);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#fff';
   for (var di = 0; di < lines.length; di++) {
+    var drawSize = fontSize * lineScales[di];
+    ctx.font = lyricFontCss(drawSize);
+    ctx.fillStyle = di === 0 ? 'rgba(255,255,255,1)' : 'rgba(0,0,0,.82)';
     if (fitScaleX < 1) {
       ctx.save();
       ctx.translate(x, 0);
       ctx.scale(fitScaleX, 1);
-      lyricFillText(ctx, lines[di], 0, y0 + di * lineHeight, fontSize);
+      lyricFillText(ctx, lines[di], 0, y0 + di * lineHeight, drawSize);
       ctx.restore();
     } else {
-      lyricFillText(ctx, lines[di], x, y0 + di * lineHeight, fontSize);
+      lyricFillText(ctx, lines[di], x, y0 + di * lineHeight, drawSize);
     }
   }
   applyStonePrintTexture(ctx, W, H, fontSize);
@@ -8737,7 +8820,7 @@ function makeLyricMask(text) {
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
   tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1);
-  return { texture:tex, width:W, height:H, textWidth:width, textHeight:blockH, fontSize:fontSize, lineHeight:lineHeight, lineCount:lines.length, lines:lines, fitScaleX:fitScaleX, textMin:(W / 2 - width / 2) / W, textMax:(W / 2 + width / 2) / W };
+  return { texture:tex, width:W, height:H, textWidth:width, textHeight:blockH, fontSize:fontSize, lineHeight:lineHeight, lineCount:lines.length, lines:lines, lineScales:lineScales, fitScaleX:fitScaleX, textMin:(W / 2 - primaryWidth / 2) / W, textMax:(W / 2 + primaryWidth / 2) / W };
 }
 
 function makeLyricReadabilityTexture(mask) {
@@ -8746,6 +8829,7 @@ function makeLyricReadabilityTexture(mask) {
   var H = mask && mask.height || 384;
   var fontSize = mask && mask.fontSize || 128;
   var lines = mask && Array.isArray(mask.lines) && mask.lines.length ? mask.lines : [''];
+  var lineScales = mask && Array.isArray(mask.lineScales) && mask.lineScales.length ? mask.lineScales : lines.map(function(){ return 1; });
   var lineHeight = mask && mask.lineHeight || fontSize * lyricLineHeightFactor();
   var fitScaleX = mask && mask.fitScaleX || 1;
   canvas.width = W; canvas.height = H;
@@ -8761,15 +8845,17 @@ function makeLyricReadabilityTexture(mask) {
   var y0 = H / 2 - blockH / 2 + fontSize * 0.82;
   function strokeLines(dx, dy) {
     for (var i = 0; i < lines.length; i++) {
+      var drawSize = fontSize * (lineScales[i] || 1);
+      ctx.font = lyricFontCss(drawSize);
       var y = y0 + i * lineHeight + (dy || 0);
       if (fitScaleX < 1) {
         ctx.save();
         ctx.translate(W / 2 + (dx || 0), 0);
         ctx.scale(fitScaleX, 1);
-        lyricStrokeText(ctx, lines[i], 0, y, fontSize);
+        lyricStrokeText(ctx, lines[i], 0, y, drawSize);
         ctx.restore();
       } else {
-        lyricStrokeText(ctx, lines[i], W / 2 + (dx || 0), y, fontSize);
+        lyricStrokeText(ctx, lines[i], W / 2 + (dx || 0), y, drawSize);
       }
     }
   }
@@ -8815,16 +8901,21 @@ function makeLyricReadabilityTexture(mask) {
   return tex;
 }
 
-function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitScaleX) {
-  text = String(text || '').replace(/\s+/g, ' ').trim();
-  var drawLines = Array.isArray(lines) && lines.length ? lines : [text];
+function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitScaleX, lineScales) {
+  var normalizedLines = splitLyricDisplayText(text);
+  var drawLines = Array.isArray(lines) && lines.length ? lines : normalizedLines;
+  lineScales = Array.isArray(lineScales) && lineScales.length ? lineScales : drawLines.map(function(_line, index){ return index === 0 ? 1 : 0.68; });
   var canvas = document.createElement('canvas');
   var measureCanvas = document.createElement('canvas');
   var measureCtx = measureCanvas.getContext('2d');
   measureCtx.font = lyricFontCss(fontSize);
   fitScaleX = fitScaleX || 1;
-  var measuredWidth = Math.max(1, textWidth || lyricMeasureText(measureCtx, text, fontSize) * fitScaleX);
-  for (var li = 0; li < drawLines.length; li++) measuredWidth = Math.max(measuredWidth, lyricMeasureText(measureCtx, drawLines[li], fontSize) * fitScaleX);
+  var measuredWidth = Math.max(1, textWidth || 1);
+  for (var li = 0; li < drawLines.length; li++) {
+    var measureSize = fontSize * (lineScales[li] || 1);
+    measureCtx.font = lyricFontCss(measureSize);
+    measuredWidth = Math.max(measuredWidth, lyricMeasureText(measureCtx, drawLines[li], measureSize) * fitScaleX);
+  }
   var padX = Math.max(160, fontSize * 1.45);
   var padY = Math.max(86, fontSize * 0.78);
   var lh = lineHeight || fontSize * 1.04;
@@ -8840,17 +8931,19 @@ function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitS
   var y0 = H / 2 - blockH / 2 + fontSize * 0.82;
   function drawGlowText(dx, dy) {
     for (var i = 0; i < drawLines.length; i++) {
+      var drawSize = fontSize * (lineScales[i] || 1);
+      ctx.font = lyricFontCss(drawSize);
       var y = y0 + i * lh + (dy || 0);
       if (fitScaleX < 1) {
         ctx.save();
         ctx.translate(W / 2 + (dx || 0), 0);
         ctx.scale(fitScaleX, 1);
-        if (ctx.lineWidth > 0) lyricStrokeText(ctx, drawLines[i], 0, y, fontSize);
-        lyricFillText(ctx, drawLines[i], 0, y, fontSize);
+        if (ctx.lineWidth > 0) lyricStrokeText(ctx, drawLines[i], 0, y, drawSize);
+        lyricFillText(ctx, drawLines[i], 0, y, drawSize);
         ctx.restore();
       } else {
-        if (ctx.lineWidth > 0) lyricStrokeText(ctx, drawLines[i], W / 2 + (dx || 0), y, fontSize);
-        lyricFillText(ctx, drawLines[i], W / 2 + (dx || 0), y, fontSize);
+        if (ctx.lineWidth > 0) lyricStrokeText(ctx, drawLines[i], W / 2 + (dx || 0), y, drawSize);
+        lyricFillText(ctx, drawLines[i], W / 2 + (dx || 0), y, drawSize);
       }
     }
   }
@@ -9008,13 +9101,17 @@ function makeLyricShaderMaterial(mask, pal) {
       'varying vec2 vUv;',
       'void main(){',
       '  vec2 uv = gl_FrontFacing ? vUv : vec2(1.0 - vUv.x, vUv.y);',
-      '  float mask = texture2D(uMap, uv).a;',
+      '  vec4 glyph = texture2D(uMap, uv);',
+      '  float mask = glyph.a;',
       '  if(mask < 0.01) discard;',
+      '  float primaryMask = smoothstep(0.20, 0.80, glyph.r / max(mask, 0.001));',
+      '  float secondaryMask = 1.0 - primaryMask;',
       '  float denom = max(0.001, uTextMax - uTextMin);',
       '  float p = clamp((uv.x - uTextMin) / denom, 0.0, 1.0);',
-      '  float filled = 1.0 - smoothstep(uProgress, uProgress + uFeather, p);',
-      '  float edge = 1.0 - smoothstep(0.0, uFeather * 2.8, abs(p - uProgress));',
-      '  vec3 color = mix(uBaseColor, uHiColor, filled * 0.88);',
+      '  float filled = (1.0 - smoothstep(uProgress, uProgress + uFeather, p)) * primaryMask;',
+      '  float edge = (1.0 - smoothstep(0.0, uFeather * 2.8, abs(p - uProgress))) * primaryMask;',
+      '  vec3 color = mix(uBaseColor, uGlowColor, secondaryMask * 0.18);',
+      '  color = mix(color, uHiColor, filled * 0.88);',
       '  color += uGlowColor * edge * 0.14;',
       '  vec3 solar = uSolarColor;',
       '  color = mix(color, color + solar * 0.34, uSolar * (0.25 + filled * 0.45));',
@@ -9029,7 +9126,7 @@ function makeLyricShaderMaterial(mask, pal) {
 }
 
 function buildLyricMesh(text) {
-  text = String(text || '').replace(/\s+/g, ' ').trim();
+  text = splitLyricDisplayText(text).join('\n');
   var mask = makeLyricMask(text);
   var pal = stageLyrics.palette;
   var worldW = 6.10;
@@ -9060,7 +9157,7 @@ function buildLyricMesh(text) {
   sun.scale.set(0.78, 0.58, 1);
   group.add(sun);
 
-  var glowTex = makeLyricGlowTexture(text, mask.fontSize, mask.textWidth, mask.lines, mask.lineHeight, mask.fitScaleX);
+  var glowTex = makeLyricGlowTexture(text, mask.fontSize, mask.textWidth, mask.lines, mask.lineHeight, mask.fitScaleX, mask.lineScales);
   var glowMat = new THREE.MeshBasicMaterial({
     map: glowTex, transparent:true, opacity:0, depthWrite:false, depthTest:false,
     side:THREE.DoubleSide, blending:THREE.AdditiveBlending, color:lyricThreeColor(pal.secondary, '#9cffdf', 0.36)
@@ -9560,7 +9657,8 @@ function tickLyricsParticles() {
   }
   if (newIdx !== stageLyrics.currentIdx) {
     stageLyrics.currentIdx = newIdx;
-    showStageLine(lyricsLines[newIdx].text || '');
+    var displayText = typeof getLyricDisplayText === 'function' ? getLyricDisplayText(lyricsLines[newIdx]) : (lyricsLines[newIdx].text || '');
+    showStageLine(displayText);
   }
   if (stageLyrics.current) {
     var curLine = lyricsLines[newIdx] || { t:t };
@@ -15308,7 +15406,7 @@ window.addEventListener('blur', function(){
 // ============================================================
 async function apiJson(url, opts) {
   opts = opts || {};
-  var timeoutMs = Number(opts.timeoutMs) || 0;
+  var timeoutMs = opts.timeoutMs == null ? 20000 : Math.max(0, Number(opts.timeoutMs) || 0);
   var fetchOpts = Object.assign({}, opts);
   delete fetchOpts.timeoutMs;
   var requestMethod = String(fetchOpts.method || 'GET').toUpperCase();
@@ -15316,14 +15414,59 @@ async function apiJson(url, opts) {
     fetchOpts.headers = Object.assign({}, fetchOpts.headers || {}, { 'X-Mineradio-Request': '1' });
   }
   var timer = null;
+  var timedOut = false;
   if (timeoutMs && window.AbortController && !fetchOpts.signal) {
     var controller = new AbortController();
     fetchOpts.signal = controller.signal;
-    timer = setTimeout(function(){ controller.abort(); }, timeoutMs);
+    timer = setTimeout(function(){
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
   }
   try {
     var res = await fetch(url, fetchOpts);
-    return res.json();
+    var raw = await res.text();
+    var payload = {};
+    if (raw) {
+      try {
+        payload = JSON.parse(raw);
+      } catch (parseError) {
+        parseError.code = 'INVALID_RESPONSE';
+        parseError.status = res.status;
+        parseError.response = res;
+        throw parseError;
+      }
+    }
+    if (!res.ok) {
+      var httpError = new Error(payload.message || payload.error || ('HTTP ' + res.status));
+      httpError.code = payload.error || payload.reason || ('HTTP_' + res.status);
+      httpError.status = res.status;
+      httpError.response = res;
+      httpError.payload = payload;
+      throw httpError;
+    }
+    return payload;
+  } catch (error) {
+    if (timedOut && error && error.name === 'AbortError') {
+      var timeoutError = new Error('请求超时，请稍后重试');
+      timeoutError.name = 'TimeoutError';
+      timeoutError.code = 'MINERADIO_TIMEOUT';
+      timeoutError.status = 408;
+      error = timeoutError;
+    }
+    var classifier = window.MineradioCore && window.MineradioCore.networkErrors;
+    if (classifier && typeof classifier.classifyNetworkError === 'function') {
+      var classified = classifier.classifyNetworkError(error, {
+        timedOut: timedOut,
+        online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+        status: error && error.status,
+        payload: error && error.payload
+      });
+      error.kind = classified.kind;
+      error.retryable = classified.retryable;
+      error.authRequired = classified.authRequired;
+    }
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -17667,6 +17810,13 @@ function openCollectModal(song) {
     return;
   }
   if (!ensureLoggedInForAction()) return;
+  var parentModal = ['album-detail-modal', 'track-detail-modal'].map(function(id){
+    return document.getElementById(id);
+  }).find(function(mask){ return mask && mask.classList.contains('show'); });
+  if (parentModal) {
+    closeGsapModal(parentModal, function(){ openCollectModal(song); });
+    return;
+  }
   collectTargetSong = song;
   renderCollectModal();
   openGsapModal(document.getElementById('collect-modal'));
@@ -23735,12 +23885,18 @@ async function startRealUpdateDownload() {
   updatePreviewState.downloadJobStatus = '';
   updatePreviewState.canSwitch = null;
   updatePreviewState.switchingLine = false;
+  updatePreviewState.cancelRequested = false;
   updatePreviewState.message = '正在下载完整安装包';
   updateUpdatePreviewProgress(0);
   try {
     var job = await apiJson('/api/update/download', { method: 'POST' });
     if (!job || job.ok === false || !job.id) throw new Error((job && job.error) || 'UPDATE_DOWNLOAD_START_FAILED');
     updatePreviewState.downloadJobId = job.id;
+    if (updatePreviewState.cancelRequested && typeof cancelOrCloseUpdateDownload === 'function') {
+      await cancelOrCloseUpdateDownload();
+      if (updatePreviewState.status === 'cancelled') return;
+      updatePreviewState.cancelRequested = false;
+    }
     applyUpdateDownloadJob(job);
     updatePreviewState.pollTimer = setInterval(function(){
       pollUpdateDownloadJob(job.id);
@@ -24218,7 +24374,12 @@ async function refreshQQLoginStatus() {
     return qqLoginStatus;
   } catch (e) {
     console.warn('QQ login status failed:', e);
-    qqLoginStatus = normalizeQQLoginStatus(null);
+    qqLoginStatus = Object.assign({}, normalizeQQLoginStatus(qqLoginStatus), {
+      loggedIn: !!qqLoginStatus.loggedIn,
+      stale: !!qqLoginStatus.stale,
+      unavailable: true,
+      offline: !!(e && (e.kind === 'offline' || e.kind === 'network' || e.kind === 'timeout'))
+    });
     renderUserBtn();
     return qqLoginStatus;
   }
@@ -24391,15 +24552,10 @@ async function openNeteaseWebLogin() {
   if (statusEl) { statusEl.textContent = '已打开网易云窗口，请在官方页面扫码登录…'; statusEl.className = 'preview'; }
   try {
     var result = await api.openNeteaseMusicLogin();
-    if (!result || !result.ok || !result.cookie) {
+    if (!result || !result.ok || !result.loggedIn) {
       throw new Error((result && (result.message || result.error)) || '网易云登录未完成');
     }
-    if (statusEl) { statusEl.textContent = '正在同步网易云会话…'; statusEl.className = 'preview'; }
-    var info = await apiJson('/api/login/cookie', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cookie: result.cookie })
-    });
+    var info = result;
     if (!info || !info.loggedIn) throw new Error((info && (info.message || info.error)) || '网易云会话不可用');
     loginStatus = info;
     activeAccountProvider = 'netease';
@@ -24438,15 +24594,10 @@ async function openQQWebLogin() {
   if (statusEl) { statusEl.textContent = '已打开 QQ 音乐窗口，请扫码并确认登录…'; statusEl.className = 'preview'; }
   try {
     var result = await api.openQQMusicLogin();
-    if (!result || !result.ok || !result.cookie) {
+    if (!result || !result.ok || !result.loggedIn) {
       throw new Error((result && (result.message || result.error)) || 'QQ 登录未完成');
     }
-    if (statusEl) { statusEl.textContent = '正在同步 QQ 音乐会话…'; statusEl.className = 'preview'; }
-    var info = await apiJson('/api/qq/login/cookie', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cookie: result.cookie })
-    });
+    var info = result;
     if (!info || !info.loggedIn) throw new Error((info && (info.message || info.error)) || 'QQ 会话不可用');
     qqLoginStatus = info;
     activeAccountProvider = 'qq';
@@ -27123,7 +27274,7 @@ function normalizeDesktopLyricText(text) {
 function currentDesktopLyricSnapshot() {
   var t = audio && isFinite(audio.currentTime) ? Number(audio.currentTime) : 0;
   var lines = Array.isArray(lyricsLines) ? lyricsLines : [];
-  if (playing && audio && lines.length) {
+  if (audio && audio.src && lines.length) {
     var idx = -1;
     for (var i = 0; i < lines.length; i++) {
       if (lines[i].t <= t + 0.05) idx = i;
@@ -27134,8 +27285,12 @@ function currentDesktopLyricSnapshot() {
       var nextLine = lines[idx + 1];
       var nextT = nextLine && nextLine.t > curLine.t ? nextLine.t : Math.min((audio && audio.duration) || t + 4, curLine.t + (curLine.duration || 4.8));
       var span = Math.max(0.75, nextT - curLine.t);
+      var displayParts = typeof getLyricDisplayParts === 'function'
+        ? getLyricDisplayParts(curLine)
+        : { primary: curLine.text || currentLyricFallbackText(), secondary: '' };
       return {
-        text: normalizeDesktopLyricText(curLine.text || currentLyricFallbackText()),
+        text: normalizeDesktopLyricText(displayParts.primary || currentLyricFallbackText()),
+        secondaryText: normalizeDesktopLyricText(displayParts.secondary),
         progress: getLyricLineProgress(curLine, nextLine, t),
         progressSpan: span
       };
@@ -27146,19 +27301,22 @@ function currentDesktopLyricSnapshot() {
       var introEnd = firstLine && firstLine.t > 0 ? firstLine.t : Math.min((audio && audio.duration) || 4.8, 4.8);
       return {
         text: introText,
+        secondaryText: '',
         progress: getLyricLineProgress({ t:0, text:introText, duration:Math.max(0.8, introEnd), charCount:Math.max(1, introText.length), fallback:true }, null, t),
         progressSpan: Math.max(0.8, introEnd)
       };
     }
   }
   if (stageLyrics && stageLyrics.currentText) {
+    var stageText = splitLyricDisplayText(stageLyrics.currentText);
     return {
-      text: normalizeDesktopLyricText(stageLyrics.currentText),
+      text: normalizeDesktopLyricText(stageText[0]),
+      secondaryText: normalizeDesktopLyricText(stageText[1]),
       progress: stageLyrics.current && stageLyrics.current.userData ? clampRange(Number(stageLyrics.current.userData.lastLyricProgress) || 0, 0, 1) : 0,
       progressSpan: 4.8
     };
   }
-  return { text: normalizeDesktopLyricText(currentDesktopSongMeta().title || 'Mineradio'), progress: 0, progressSpan: 4.8 };
+  return { text: normalizeDesktopLyricText(currentDesktopSongMeta().title || 'Mineradio'), secondaryText: '', progress: 0, progressSpan: 4.8 };
 }
 function desktopOverlayColorValue(value, fallback) {
   var raw = String(value || '').trim();
@@ -27238,6 +27396,7 @@ function desktopLyricsPayload(forceBeatMap) {
   var payload = {
     enabled: !!fx.desktopLyrics && !isDevelopmentLockedFx('desktopLyrics'),
     text: lyric.text,
+    secondaryText: lyric.secondaryText || '',
     progress: lyric.progress,
     progressSpan: lyric.progressSpan,
     title: meta.title,
@@ -27286,7 +27445,7 @@ function pushDesktopLyricsState(force) {
   var payload = desktopLyricsPayload(!!force);
   var colors = payload.colors || {};
   var motion = payload.motion || {};
-  var key = payload.enabled + '|' + payload.text + '|' + Math.round(payload.progress * 1000) + '|' + Math.round((payload.progressSpan || 0) * 100) + '|' + payload.playing + '|' + payload.size + '|' + payload.opacity + '|' + payload.y + '|' + payload.clickThrough + '|' + payload.cinema + '|' + payload.highlightFollow + '|' + payload.frameRate + '|' + payload.fontFamily + '|' + payload.fontWeight + '|' + payload.letterSpacing + '|' + payload.lineHeight + '|' + payload.lyricScale + '|' + payload.feather + '|' + payload.beatMapKey + '|' + colors.primary + '|' + colors.secondary + '|' + colors.highlight + '|' + colors.glow + '|' + motion.lyricGlow + '|' + motion.lyricGlowBeat + '|' + Math.round((motion.lyricGlowStrength || 0) * 100) + '|' + Math.round((motion.highBloom || 0) * 100) + '|' + Math.round((motion.beatGlow || 0) * 100) + '|' + Math.round((motion.beatPulse || 0) * 100) + '|' + Math.round((motion.bass || 0) * 100);
+  var key = payload.enabled + '|' + payload.text + '|' + payload.secondaryText + '|' + Math.round(payload.progress * 1000) + '|' + Math.round((payload.progressSpan || 0) * 100) + '|' + payload.playing + '|' + payload.size + '|' + payload.opacity + '|' + payload.y + '|' + payload.clickThrough + '|' + payload.cinema + '|' + payload.highlightFollow + '|' + payload.frameRate + '|' + payload.fontFamily + '|' + payload.fontWeight + '|' + payload.letterSpacing + '|' + payload.lineHeight + '|' + payload.lyricScale + '|' + payload.feather + '|' + payload.beatMapKey + '|' + colors.primary + '|' + colors.secondary + '|' + colors.highlight + '|' + colors.glow + '|' + motion.lyricGlow + '|' + motion.lyricGlowBeat + '|' + Math.round((motion.lyricGlowStrength || 0) * 100) + '|' + Math.round((motion.highBloom || 0) * 100) + '|' + Math.round((motion.beatGlow || 0) * 100) + '|' + Math.round((motion.beatPulse || 0) * 100) + '|' + Math.round((motion.bass || 0) * 100);
   if (!force && key === desktopOverlayPushState.lastLyricsKey && now - desktopOverlayPushState.lyricsAt < 900) return;
   desktopOverlayPushState.lyricsAt = now;
   desktopOverlayPushState.lastLyricsKey = key;
@@ -27840,5 +27999,6 @@ function animate() {
 }
 animate();
 </script>
+<script src="js/v140.js"></script>
 </body>
 </html>

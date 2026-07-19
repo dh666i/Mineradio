@@ -4,15 +4,16 @@
 
 - 正式仓库：`https://github.com/dh666i/Mineradio`。
 - `package.json` 中 `build.publish` 与 `mineradio.update` 必须指向 `dh666i/Mineradio`。
-- 当前源码基线和稳定安装版为 `1.3.2`；README、SECURITY 与 Release 资产必须保持一致。
+- 当前源码基线和稳定安装版为 `1.4.0`；README、SECURITY 与 Release 资产必须保持一致。
 - 更新元数据只从 GitHub 官方 HTTPS 获取；安装包镜像会在下载前测速，最终文件仍须通过 Release 摘要与签名校验。
 - 技术 `appId` 使用 `com.dh666i.mineradio`，用户数据目录使用 `%APPDATA%\dh666i\Mineradio`；界面产品名保持 `Mineradio`。
 
-## v1.3.2 发布准备
+## v1.4.0 发布准备
 
-- Tag：`v1.3.2`
-- 标题：`Mineradio v1.3.2`
+- Tag：`v1.4.0`
+- 标题：`Mineradio v1.4.0`
 - 使用同一份持久化自签名证书构建所有后续版本；丢失证书会导致已安装版本拒绝自动打开新安装包。
+- 构建与验证脚本必须匹配已发布证书指纹 `FD7B0DCE709B69C049336CE4817E340E62C8F174`。
 - 固定 NSIS `guid` 为 v1.2.0 使用的 `9733721a-009e-52bc-b705-49059cd80258`，修改 `appId` 时不得改变升级身份。
 - Release 不上传快速补丁文件，只上传完整安装包、blockmap、`latest.yml` 和 SHA256 文件。
 - `latest.yml` 必须由签名完成后的最终安装包生成，不得通过第三方镜像发布或替换。
@@ -20,10 +21,10 @@
 
 发布资产：
 
-- `dist/Mineradio-1.3.2-Setup.exe`
-- `dist/Mineradio-1.3.2-Setup.exe.blockmap`
+- `dist/Mineradio-1.4.0-Setup.exe`
+- `dist/Mineradio-1.4.0-Setup.exe.blockmap`
 - `dist/latest.yml`
-- `dist/Mineradio-1.3.2-SHA256SUMS.txt`
+- `dist/Mineradio-1.4.0-SHA256SUMS.txt`
 
 ## v1.2.0 发布
 

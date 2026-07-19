@@ -19,6 +19,7 @@ $localPfxPath = Join-Path $secretDir 'mineradio-self-signed.pfx'
 $localCredentialPath = Join-Path $secretDir 'mineradio-signing-credential.xml'
 $generatorPath = Join-Path $PSScriptRoot 'generate-self-signed-cert.ps1'
 $verificationPath = Join-Path $PSScriptRoot 'verify-signatures.ps1'
+$thumbprintPath = Join-Path $PSScriptRoot 'expected-thumbprint.txt'
 
 if (-not (Test-Path -LiteralPath $builderPath)) {
     throw 'electron-builder is not installed. Run npm install before building.'
@@ -64,6 +65,29 @@ try {
 
     [Environment]::SetEnvironmentVariable('WIN_CSC_LINK', $certificateLink, 'Process')
     [Environment]::SetEnvironmentVariable('WIN_CSC_KEY_PASSWORD', $certificatePassword, 'Process')
+
+    if (-not (Test-Path -LiteralPath $thumbprintPath -PathType Leaf)) {
+        throw "Expected signing thumbprint file was not found: $thumbprintPath"
+    }
+    $expectedThumbprint = (Get-Content -Raw -LiteralPath $thumbprintPath).Trim().ToUpperInvariant()
+    if ($expectedThumbprint -notmatch '^[0-9A-F]{40}$') {
+        throw "Invalid expected signing thumbprint: $expectedThumbprint"
+    }
+    if ($certificateLink.Length -lt 1024 -and (Test-Path -LiteralPath $certificateLink -PathType Leaf)) {
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            (Resolve-Path -LiteralPath $certificateLink).Path,
+            $certificatePassword,
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+        )
+        try {
+            if ([string]$certificate.Thumbprint -ne $expectedThumbprint) {
+                throw "Configured signing certificate does not match the published Mineradio identity. Expected $expectedThumbprint, found $($certificate.Thumbprint)."
+            }
+        } finally {
+            $certificate.Dispose()
+        }
+        Write-Host "Verified signing identity: $expectedThumbprint"
+    }
 
     $signToolPath = [Environment]::GetEnvironmentVariable('SIGNTOOL_PATH', 'Process')
     if ([string]::IsNullOrWhiteSpace($signToolPath)) {
