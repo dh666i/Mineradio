@@ -11,7 +11,7 @@
   'use strict';
 
   var SCHEMA_VERSION = 1;
-  var DEFAULT_MAX_ITEMS = 500;
+  var DEFAULT_MAX_ITEMS = 5000;
   var DEFAULT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
   var DEFAULT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
   var BLOCKED_KEYS = {
@@ -125,10 +125,22 @@
     var maxItems = Math.max(1, integer(options.maxItems, DEFAULT_MAX_ITEMS));
     var requestedIndex = integer(input.currentIndex != null ? input.currentIndex : input.currentIdx, -1);
     var requestedKey = String(input.currentKey || queueItemKey(input.activePlaybackSong) || queueItemKey(rawQueue[requestedIndex]) || '');
+    var anchorIndex = requestedIndex;
+    if (requestedKey && (anchorIndex < 0 || anchorIndex >= rawQueue.length || queueItemKey(rawQueue[anchorIndex]) !== requestedKey)) {
+      for (var anchor = 0; anchor < rawQueue.length; anchor++) {
+        if (queueItemKey(rawQueue[anchor]) === requestedKey) {
+          anchorIndex = anchor;
+          break;
+        }
+      }
+    }
+    var sourceStart = rawQueue.length > maxItems && anchorIndex >= 0
+      ? clamp(anchorIndex - Math.floor(maxItems / 3), 0, rawQueue.length - maxItems)
+      : 0;
     var indexMap = {};
     var queue = [];
 
-    for (var i = 0; i < rawQueue.length && queue.length < maxItems; i++) {
+    for (var i = sourceStart; i < rawQueue.length && queue.length < maxItems; i++) {
       var song = sanitizeSong(rawQueue[i]);
       if (!song) continue;
       indexMap[i] = queue.length;
@@ -165,6 +177,7 @@
       playMode: normalizePlayMode(input.playMode),
       wasPlaying: !!(input.wasPlaying != null ? input.wasPlaying : input.playing),
       context: sanitizeValue(input.context || input.activeRadioContext || null, 'context', 0) || null,
+      truncated: queue.length < rawQueue.length,
     };
   }
 
@@ -367,6 +380,105 @@
     };
   }
 
+  function removeQueueItems(state, indices, options) {
+    state = state || {};
+    options = options || {};
+    var queue = Array.isArray(state.queue) ? state.queue.slice() : [];
+    var removeLookup = Object.create(null);
+    var normalizedIndices = [];
+    (Array.isArray(indices) ? indices : []).forEach(function (value) {
+      var index = integer(value, -1);
+      if (index < 0 || index >= queue.length || removeLookup[index]) return;
+      removeLookup[index] = true;
+      normalizedIndices.push(index);
+    });
+    normalizedIndices.sort(function (left, right) { return left - right; });
+    if (!normalizedIndices.length) {
+      return { changed: false, state: Object.assign({}, state, { queue: queue }), reason: 'invalid_indices' };
+    }
+
+    var currentIndex = integer(state.currentIndex, -1);
+    var currentKey = String(state.currentKey || queueItemKey(queue[currentIndex]) || '');
+    if (currentKey && (currentIndex < 0 || currentIndex >= queue.length || queueItemKey(queue[currentIndex]) !== currentKey)) {
+      currentIndex = queue.findIndex(function (song) { return queueItemKey(song) === currentKey; });
+    }
+    var removedCurrent = currentIndex >= 0 && !!removeLookup[currentIndex];
+    var removedBeforeCurrent = currentIndex >= 0
+      ? normalizedIndices.filter(function (index) { return index < currentIndex; }).length
+      : 0;
+    var removed = normalizedIndices.map(function (index) { return queue[index]; });
+    var nextQueue = queue.filter(function (_, index) { return !removeLookup[index]; });
+    var next = Object.assign({}, state, { queue: nextQueue });
+    var nextAction = 'none';
+
+    if (!nextQueue.length) {
+      next.currentIndex = -1;
+      next.currentKey = '';
+      next.positionSeconds = 0;
+      next.durationSeconds = 0;
+      next.wasPlaying = false;
+      nextAction = removedCurrent ? 'stop' : 'none';
+    } else if (removedCurrent) {
+      var policy = options.onRemoveCurrent || 'advance';
+      if (policy === 'detach') {
+        next.currentIndex = -1;
+        next.currentKey = currentKey;
+        nextAction = 'keep-playing-detached';
+      } else if (policy === 'stop') {
+        next.currentIndex = -1;
+        next.currentKey = '';
+        next.positionSeconds = 0;
+        next.durationSeconds = 0;
+        next.wasPlaying = false;
+        nextAction = 'stop';
+      } else {
+        next.currentIndex = Math.min(Math.max(0, currentIndex - removedBeforeCurrent), nextQueue.length - 1);
+        next.currentKey = queueItemKey(nextQueue[next.currentIndex]);
+        next.positionSeconds = 0;
+        next.durationSeconds = 0;
+        nextAction = state.wasPlaying ? 'play-current' : 'load-current';
+      }
+    } else {
+      next.currentIndex = currentIndex >= 0 ? currentIndex - removedBeforeCurrent : -1;
+      if (next.currentIndex < 0 || next.currentIndex >= nextQueue.length || (currentKey && queueItemKey(nextQueue[next.currentIndex]) !== currentKey)) {
+        next.currentIndex = currentKey
+          ? nextQueue.findIndex(function (song) { return queueItemKey(song) === currentKey; })
+          : -1;
+      }
+      next.currentKey = next.currentIndex >= 0 ? queueItemKey(nextQueue[next.currentIndex]) : '';
+    }
+
+    return {
+      changed: true,
+      removed: removed,
+      removedCurrent: removedCurrent,
+      nextAction: nextAction,
+      state: next,
+    };
+  }
+
+  function queueWindowStart(total, batchSize, anchorIndex) {
+    total = Math.max(0, integer(total, 0));
+    batchSize = Math.max(1, integer(batchSize, 1));
+    if (!total) return 0;
+    var lastStart = Math.floor((total - 1) / batchSize) * batchSize;
+    anchorIndex = clamp(integer(anchorIndex, 0), 0, total - 1);
+    return clamp(Math.floor(anchorIndex / batchSize) * batchSize, 0, lastStart);
+  }
+
+  function queueWindowRange(total, batchSize, anchorIndex) {
+    total = Math.max(0, integer(total, 0));
+    batchSize = Math.max(1, integer(batchSize, 1));
+    var start = queueWindowStart(total, batchSize, anchorIndex);
+    return { start: start, end: Math.min(total, start + batchSize) };
+  }
+
+  function shiftQueueWindow(total, batchSize, currentStart, direction) {
+    batchSize = Math.max(1, integer(batchSize, 1));
+    direction = direction < 0 ? -1 : 1;
+    return queueWindowStart(total, batchSize, integer(currentStart, 0) + direction * batchSize);
+  }
+
   return {
     SCHEMA_VERSION: SCHEMA_VERSION,
     DEFAULT_MAX_AGE_MS: DEFAULT_MAX_AGE_MS,
@@ -377,6 +489,10 @@
     migrateQueueSnapshot: migrateQueueSnapshot,
     restoreQueueSnapshot: restoreQueueSnapshot,
     removeQueueItem: removeQueueItem,
+    removeQueueItems: removeQueueItems,
     moveQueueItem: moveQueueItem,
+    queueWindowStart: queueWindowStart,
+    queueWindowRange: queueWindowRange,
+    shiftQueueWindow: shiftQueueWindow,
   };
 });

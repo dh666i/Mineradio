@@ -131,7 +131,32 @@ body.empty-home-active .home-visual { animation: none; }
   cursor: grab;
   font-size: 15px;
 }
-.queue-save-btn { flex: 0 0 auto; }
+#playlist-panel .queue-head-act .fx-mini-btn,
+#queue-pane .queue-toolbar .fx-mini-btn {
+  flex: 0 0 auto;
+  height: 26px;
+  min-width: 0;
+  padding: 0 8px !important;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+#playlist-panel .queue-head-act .playlist-pin-btn {
+  width: 26px;
+  min-width: 26px;
+  padding: 0 !important;
+}
+#queue-pane .queue-toolbar { gap: 6px; }
+#queue-pane .queue-toolbar > div:last-child { min-width: 0; gap: 5px !important; }
+#play-mode-chip {
+  flex: 0 0 auto;
+  min-width: max-content;
+  padding: 0 8px;
+  white-space: nowrap;
+  line-height: 1;
+  letter-spacing: 0;
+}
 
 /* Auto-hide collapses to a real mini player instead of disappearing. */
 body.v140-has-playback:not(.immersive-mode):not(.home-controls-locked) #bottom-bar.soft-hidden {
@@ -187,6 +212,7 @@ body.podcast-playing .podcast-control { display: inline-flex; }
 /* Settings */
 .settings-modal {
   width: min(820px, calc(100vw - 42px));
+  max-width: none;
   height: min(620px, calc(100vh - 54px));
   padding: 0;
   overflow: hidden;
@@ -216,8 +242,8 @@ body.podcast-playing .podcast-control { display: inline-flex; }
   font-size: 20px;
   cursor: pointer;
 }
-.settings-layout { height: calc(100% - 76px); display: grid; grid-template-columns: 178px minmax(0,1fr); }
-.settings-nav { padding: 18px 12px; border-right: 1px solid rgba(255,255,255,.065); display: flex; flex-direction: column; gap: 5px; }
+.settings-layout { min-width: 0; min-height: 0; height: calc(100% - 76px); display: grid; grid-template-columns: 178px minmax(0,1fr); }
+.settings-nav { min-width: 0; min-height: 0; padding: 18px 12px; border-right: 1px solid rgba(255,255,255,.065); display: flex; flex-direction: column; gap: 5px; overflow: hidden; }
 .settings-nav button {
   min-height: 38px;
   padding: 0 12px;
@@ -231,13 +257,28 @@ body.podcast-playing .podcast-control { display: inline-flex; }
   cursor: pointer;
 }
 .settings-nav button.active { color: #fff; background: rgba(var(--fc-accent-rgb), .10); }
-.settings-content { overflow: auto; padding: 24px 26px; }
-.settings-page { display: none; }
+.settings-content {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 26px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.18) transparent;
+  container: settings-content / inline-size;
+}
+.settings-content::-webkit-scrollbar { width: 6px; height: 0; }
+.settings-content::-webkit-scrollbar-track { background: transparent; }
+.settings-content::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(255,255,255,.18); }
+.settings-page { min-width: 0; max-width: 100%; display: none; }
 .settings-page.active { display: block; }
 .settings-page h3 { margin: 0 0 18px; font-size: 15px; }
 .settings-page p { color: var(--v140-muted); font-size: 12px; line-height: 1.7; margin-bottom: 18px; }
 .settings-row,
 .settings-field {
+  width: 100%;
+  min-width: 0;
   min-height: 66px;
   padding: 13px 14px;
   border-bottom: 1px solid rgba(255,255,255,.065);
@@ -247,14 +288,17 @@ body.podcast-playing .podcast-control { display: inline-flex; }
   gap: 18px;
 }
 .settings-row span,
-.settings-field span { min-width: 0; }
+.settings-field span { flex: 1 1 auto; min-width: 0; }
 .settings-row b,
-.settings-field b { display: block; font-size: 12px; color: rgba(255,255,255,.88); }
+.settings-field b { display: block; font-size: 12px; line-height: 1.4; color: rgba(255,255,255,.88); word-break: keep-all; }
 .settings-row small,
-.settings-field small { display: block; margin-top: 4px; color: rgba(255,255,255,.38); font-size: 10.5px; }
-.settings-row input[type="checkbox"] { width: 38px; height: 20px; accent-color: var(--fc-accent); }
+.settings-field small { display: block; margin-top: 4px; color: rgba(255,255,255,.38); font-size: 10.5px; line-height: 1.5; word-break: normal; overflow-wrap: break-word; }
+.settings-row input[type="checkbox"] { flex: 0 0 auto; width: 38px; height: 20px; accent-color: var(--fc-accent); }
 .settings-field select {
+  flex: 0 1 180px;
+  width: min(180px, 48%);
   min-width: 132px;
+  max-width: 100%;
   height: 34px;
   border-radius: 7px;
   border: 1px solid rgba(255,255,255,.11);
@@ -264,12 +308,19 @@ body.podcast-playing .podcast-control { display: inline-flex; }
 }
 .settings-content .fx-seg { margin: 8px 0 18px; }
 .settings-content .fx-toggle { margin: 8px 0; }
-.settings-action-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 9px; }
+.settings-action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(128px, 100%), 1fr)); gap: 9px; }
+.settings-action-grid .modal-btn { min-width: 0; white-space: nowrap; }
 .settings-version { margin-top: 18px; color: rgba(255,255,255,.34); font-size: 10.5px; }
+
+@container settings-content (max-width: 460px) {
+  .settings-field { align-items: stretch; flex-direction: column; gap: 10px; }
+  .settings-field select { flex-basis: auto; width: 100%; }
+}
 
 /* Album discovery */
 .album-detail-modal {
   width: min(780px, calc(100vw - 44px));
+  max-width: none;
   height: min(680px, calc(100vh - 54px));
   padding: 0;
   overflow: hidden;
@@ -374,8 +425,9 @@ html.reduce-motion *::after {
   .podcast-control { display: none !important; }
   .settings-modal { width: calc(100vw - 20px); height: calc(100vh - 26px); }
   .settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0,1fr); }
-  .settings-nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.065); padding: 8px; }
-  .settings-nav button { min-width: max-content; text-align: center; }
+  .settings-nav { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.065); padding: 8px; scrollbar-width: none; }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav button { flex: 1 0 auto; min-width: max-content; text-align: center; white-space: nowrap; }
   .settings-content { padding: 18px 16px; }
   .settings-action-grid { grid-template-columns: 1fr; }
   .album-detail-head { grid-template-columns: 86px minmax(0,1fr) auto; gap: 12px; padding: 16px; }

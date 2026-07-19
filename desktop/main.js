@@ -37,6 +37,7 @@ let systemMediaState = {
 };
 const taskbarMediaIcons = new Map();
 const diagnosticEvents = [];
+const DIAGNOSTIC_LOG_MAX_BYTES = 1024 * 1024;
 const adaptiveLoginWindows = new Map();
 const invalidatedLoginSessions = { netease: false, qq: false };
 let legacyUserDataPath = '';
@@ -56,8 +57,62 @@ function recordDiagnosticEvent(level, args) {
     if (typeof item === 'string') return item;
     try { return JSON.stringify(item); } catch (_) { return String(item); }
   }).join(' ');
-  diagnosticEvents.push({ at: new Date().toISOString(), level, message: redactDiagnosticText(message) });
+  const entry = { at: new Date().toISOString(), level, message: redactDiagnosticText(message) };
+  diagnosticEvents.push(entry);
   if (diagnosticEvents.length > 160) diagnosticEvents.splice(0, diagnosticEvents.length - 160);
+  appendPersistentDiagnosticEvent(entry);
+}
+
+function diagnosticLogPath() {
+  try { return path.join(app.getPath('userData'), 'logs', 'main.log'); }
+  catch (_) { return ''; }
+}
+
+function appendPersistentDiagnosticEvent(entry) {
+  const filePath = diagnosticLogPath();
+  if (!filePath) return;
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    if (fs.existsSync(filePath) && fs.statSync(filePath).size >= DIAGNOSTIC_LOG_MAX_BYTES) {
+      const previousPath = path.join(path.dirname(filePath), 'main.previous.log');
+      if (fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
+      fs.renameSync(filePath, previousPath);
+    }
+    fs.appendFileSync(filePath, `${JSON.stringify(entry)}\n`, 'utf8');
+  } catch (_) {}
+}
+
+function readPersistentDiagnosticEvents(limit = 160) {
+  const files = [
+    path.join(path.dirname(diagnosticLogPath() || '.'), 'main.previous.log'),
+    diagnosticLogPath(),
+  ].filter(Boolean);
+  const rows = [];
+  for (const filePath of files) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const stat = fs.statSync(filePath);
+      const start = Math.max(0, stat.size - 128 * 1024);
+      const handle = fs.openSync(filePath, 'r');
+      try {
+        const buffer = Buffer.alloc(stat.size - start);
+        fs.readSync(handle, buffer, 0, buffer.length, start);
+        buffer.toString('utf8').split(/\r?\n/).filter(Boolean).forEach((line) => {
+          try {
+            const parsed = JSON.parse(line);
+            rows.push({
+              at: String(parsed.at || ''),
+              level: String(parsed.level || 'error'),
+              message: redactDiagnosticText(parsed.message || ''),
+            });
+          } catch (_) {}
+        });
+      } finally {
+        fs.closeSync(handle);
+      }
+    } catch (_) {}
+  }
+  return rows.slice(-Math.max(1, Number(limit) || 160));
 }
 
 ['warn', 'error'].forEach((level) => {
@@ -70,6 +125,18 @@ function recordDiagnosticEvent(level, args) {
       try { return redactDiagnosticText(JSON.stringify(item)); } catch (_) { return redactDiagnosticText(item); }
     }));
   };
+});
+
+process.on('unhandledRejection', (reason) => {
+  recordDiagnosticEvent('unhandled-rejection', [reason instanceof Error ? reason : String(reason)]);
+});
+
+process.on('uncaughtException', (error) => {
+  recordDiagnosticEvent('uncaught-exception', [error]);
+  setImmediate(() => {
+    try { app.exit(1); }
+    catch (_) { process.exit(1); }
+  });
 });
 
 const WINDOWED_ASPECT = 16 / 9;
@@ -209,6 +276,23 @@ app.setName(APP_NAME);
 configureIndependentUserDataPath();
 if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+app.on('render-process-gone', (_event, webContents, details) => {
+  recordDiagnosticEvent('render-process-gone', [{
+    reason: details && details.reason,
+    exitCode: details && details.exitCode,
+    url: webContents && webContents.getURL ? webContents.getURL() : '',
+  }]);
+});
+
+app.on('child-process-gone', (_event, details) => {
+  recordDiagnosticEvent('child-process-gone', [{
+    type: details && details.type,
+    reason: details && details.reason,
+    exitCode: details && details.exitCode,
+    serviceName: details && details.serviceName,
+  }]);
+});
 
 const QQ_LOGIN_COOKIE_PRIORITY = [
   'uin',
@@ -576,6 +660,21 @@ function isTrustedMainRenderer(event) {
   if (event.sender.id !== mainWindow.webContents.id) return false;
   if (event.senderFrame && event.senderFrame.parent) return false;
   return isTrustedMainUrl(event.senderFrame && event.senderFrame.url || event.sender.getURL() || '');
+}
+
+function isTrustedWindowRenderer(event, win) {
+  if (!event || !event.sender || !win || win.isDestroyed()) return false;
+  if (event.sender.id !== win.webContents.id) return false;
+  if (event.senderFrame && event.senderFrame.parent) return false;
+  return isTrustedMainUrl(event.senderFrame && event.senderFrame.url || event.sender.getURL() || '');
+}
+
+function isTrustedDesktopLyricsRenderer(event) {
+  return isTrustedWindowRenderer(event, desktopLyricsWindow);
+}
+
+function ipcForbidden() {
+  return { ok: false, error: 'IPC_FORBIDDEN' };
 }
 
 function normalizeBackgroundRuntimePolicy(value) {
@@ -1071,6 +1170,40 @@ function isNeteaseCookieDomain(domain) {
     normalized === 'netease.com' || normalized.endsWith('.netease.com');
 }
 
+function isAllowedMusicLoginUrl(provider, value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (provider === 'netease') {
+      return host === '163.com' || host.endsWith('.163.com')
+        || host === 'netease.com' || host.endsWith('.netease.com')
+        || host === '126.com' || host.endsWith('.126.com');
+    }
+    return host === 'qq.com' || host.endsWith('.qq.com')
+      || host === 'weixin.qq.com' || host.endsWith('.weixin.qq.com');
+  } catch (_) {
+    return false;
+  }
+}
+
+function secureMusicLoginWindow(loginWindow, provider, cookieSession) {
+  if (!loginWindow || loginWindow.isDestroyed()) return;
+  const guardNavigation = (event, targetUrl) => {
+    if (isAllowedMusicLoginUrl(provider, targetUrl)) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(String(targetUrl || ''))) shell.openExternal(targetUrl).catch(() => {});
+  };
+  loginWindow.webContents.on('will-navigate', guardNavigation);
+  loginWindow.webContents.on('will-redirect', guardNavigation);
+  if (cookieSession && typeof cookieSession.setPermissionRequestHandler === 'function') {
+    cookieSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  }
+  if (cookieSession && typeof cookieSession.setPermissionCheckHandler === 'function') {
+    cookieSession.setPermissionCheckHandler(() => false);
+  }
+}
+
 function buildCookieHeaderFor(cookies, isAllowedDomain, priority) {
   const picked = new Map();
   (cookies || []).forEach((cookie) => {
@@ -1145,6 +1278,7 @@ async function openNeteaseMusicLoginWindow(owner) {
       },
     });
     registerAdaptiveLoginWindow(loginWindow, { minWidth: 720, minHeight: 500, margin: 12 });
+    secureMusicLoginWindow(loginWindow, 'netease', cookieSession);
 
     const settle = (result) => {
       if (settled) return;
@@ -1173,7 +1307,7 @@ async function openNeteaseMusicLoginWindow(owner) {
     };
 
     loginWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\/([^/]+\.)?(163|music\.163|netease)\.com/i.test(url)) {
+      if (isAllowedMusicLoginUrl('netease', url)) {
         loginWindow.loadURL(url).catch((e) => console.warn('Netease login popup navigation failed:', e.message));
       } else if (/^https?:\/\//i.test(url)) {
         shell.openExternal(url).catch(() => {});
@@ -1267,6 +1401,7 @@ async function openQQMusicLoginWindow(owner) {
       },
     });
     registerAdaptiveLoginWindow(loginWindow, { minWidth: 700, minHeight: 480, margin: 12 });
+    secureMusicLoginWindow(loginWindow, 'qq', cookieSession);
 
     const settle = (result) => {
       if (settled) return;
@@ -1741,7 +1876,7 @@ function createDesktopLyricsWindow(payload = {}) {
       preload: path.join(__dirname, 'overlay-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       backgroundThrottling: false,
     },
   });
@@ -1870,7 +2005,7 @@ function createWallpaperWindow(payload = {}) {
       preload: path.join(__dirname, 'overlay-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       backgroundThrottling: false,
     },
   });
@@ -1905,22 +2040,31 @@ function closeOverlayWindows() {
 }
 
 ipcMain.handle('desktop-window-minimize', (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   getSenderWindow(event)?.minimize();
+  return { ok: true };
 });
 
 ipcMain.handle('desktop-window-toggle-maximize', (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   toggleFullscreen(getSenderWindow(event));
+  return { ok: true };
 });
 
 ipcMain.handle('desktop-window-toggle-fullscreen', (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   toggleFullscreen(getSenderWindow(event));
+  return { ok: true };
 });
 
 ipcMain.handle('desktop-window-exit-fullscreen-windowed', (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   exitFullscreenToWindow(getSenderWindow(event));
+  return { ok: true };
 });
 
 ipcMain.handle('desktop-window-get-state', (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   return getWindowState(getSenderWindow(event));
 });
 
@@ -1935,14 +2079,18 @@ ipcMain.handle('mineradio-background-policy-set', (event, mode) => {
 });
 
 ipcMain.handle('desktop-window-close', (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   getSenderWindow(event)?.close();
+  return { ok: true };
 });
 
-ipcMain.handle('mineradio-hotkeys-configure-global', (_event, bindings) => {
+ipcMain.handle('mineradio-hotkeys-configure-global', (event, bindings) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   return configureMineradioGlobalHotkeys(bindings);
 });
 
-ipcMain.handle('mineradio-system-media-update', (_event, payload = {}) => {
+ipcMain.handle('mineradio-system-media-update', (event, payload = {}) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   systemMediaState = {
     hasTrack: !!payload.hasTrack,
     playing: !!payload.playing,
@@ -1956,7 +2104,8 @@ ipcMain.handle('mineradio-system-media-update', (_event, payload = {}) => {
   return { ok: true };
 });
 
-ipcMain.handle('mineradio-settings-backup', (_event, payload = {}) => {
+ipcMain.handle('mineradio-settings-backup', (event, payload = {}) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     return createSettingsBackup(payload);
   } catch (e) {
@@ -1964,7 +2113,8 @@ ipcMain.handle('mineradio-settings-backup', (_event, payload = {}) => {
   }
 });
 
-ipcMain.handle('mineradio-settings-restore-latest', () => {
+ipcMain.handle('mineradio-settings-restore-latest', (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     return readLatestSettingsBackup();
   } catch (e) {
@@ -1973,6 +2123,7 @@ ipcMain.handle('mineradio-settings-restore-latest', () => {
 });
 
 ipcMain.handle('mineradio-export-diagnostics', async (event, rendererPayload = {}) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     const owner = getSenderWindow(event);
     let gpu = {};
@@ -2020,6 +2171,7 @@ ipcMain.handle('mineradio-export-diagnostics', async (event, rendererPayload = {
       })),
       renderer: rendererPayload,
       recentEvents: diagnosticEvents.slice(-120),
+      persistedEvents: readPersistentDiagnosticEvents(160),
     };
     const stamp = new Date().toISOString().slice(0, 10);
     const result = await dialog.showSaveDialog(owner, {
@@ -2036,6 +2188,7 @@ ipcMain.handle('mineradio-export-diagnostics', async (event, rendererPayload = {
 });
 
 ipcMain.handle('mineradio-export-json-file', async (event, payload = {}) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     const owner = getSenderWindow(event);
     const defaultName = String(payload.defaultName || 'mineradio-export.json').replace(/[\\/:*?"<>|]+/g, '-');
@@ -2054,6 +2207,7 @@ ipcMain.handle('mineradio-export-json-file', async (event, payload = {}) => {
 });
 
 ipcMain.handle('mineradio-import-json-file', async (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     const owner = getSenderWindow(event);
     const result = await dialog.showOpenDialog(owner, {
@@ -2119,7 +2273,8 @@ ipcMain.handle('mineradio-update-download-cancel', async (event, jobId) => {
   });
 });
 
-ipcMain.handle('mineradio-open-update-installer', async (_event, filePath) => {
+ipcMain.handle('mineradio-open-update-installer', async (event, filePath) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     const requestedTarget = path.resolve(String(filePath || ''));
     const updateDir = path.resolve(getUpdateDownloadDir());
@@ -2152,7 +2307,8 @@ ipcMain.handle('mineradio-open-update-installer', async (_event, filePath) => {
   }
 });
 
-ipcMain.handle('mineradio-restart-app', async () => {
+ipcMain.handle('mineradio-restart-app', async (event) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     isAppQuitting = true;
     app.relaunch();
@@ -2163,7 +2319,11 @@ ipcMain.handle('mineradio-restart-app', async () => {
   }
 });
 
-ipcMain.handle('mineradio-desktop-lyrics-set-enabled', async (_event, enabled, payload) => {
+ipcMain.handle('mineradio-desktop-lyrics-set-enabled', async (event, enabled, payload) => {
+  const fromMain = isTrustedMainRenderer(event);
+  const fromLyrics = isTrustedDesktopLyricsRenderer(event);
+  if (!fromMain && !fromLyrics) return ipcForbidden();
+  if (fromLyrics && enabled) return ipcForbidden();
   try {
     if (enabled) {
       createDesktopLyricsWindow(payload || {});
@@ -2177,7 +2337,8 @@ ipcMain.handle('mineradio-desktop-lyrics-set-enabled', async (_event, enabled, p
   }
 });
 
-ipcMain.handle('mineradio-desktop-lyrics-update', async (_event, payload) => {
+ipcMain.handle('mineradio-desktop-lyrics-update', async (event, payload) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     const nextState = { ...desktopLyricsState, ...(payload || {}) };
     if (nextState.enabled) {
@@ -2194,11 +2355,13 @@ ipcMain.handle('mineradio-desktop-lyrics-update', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('mineradio-desktop-lyrics-set-dragging', async () => {
+ipcMain.handle('mineradio-desktop-lyrics-set-dragging', async (event) => {
+  if (!isTrustedDesktopLyricsRenderer(event)) return ipcForbidden();
   return { ok: true };
 });
 
-ipcMain.handle('mineradio-desktop-lyrics-set-pointer-capture', async (_event, active) => {
+ipcMain.handle('mineradio-desktop-lyrics-set-pointer-capture', async (event, active) => {
+  if (!isTrustedDesktopLyricsRenderer(event)) return ipcForbidden();
   try {
     desktopLyricsPointerCapture = !!active;
     applyDesktopLyricsMouseBehavior();
@@ -2208,7 +2371,8 @@ ipcMain.handle('mineradio-desktop-lyrics-set-pointer-capture', async (_event, ac
   }
 });
 
-ipcMain.handle('mineradio-desktop-lyrics-set-hot-bounds', async (_event, bounds) => {
+ipcMain.handle('mineradio-desktop-lyrics-set-hot-bounds', async (event, bounds) => {
+  if (!isTrustedDesktopLyricsRenderer(event)) return ipcForbidden();
   try {
     const left = clampNumber(bounds && bounds.left, -2000, 4000, 0);
     const top = clampNumber(bounds && bounds.top, -2000, 4000, 0);
@@ -2221,7 +2385,8 @@ ipcMain.handle('mineradio-desktop-lyrics-set-hot-bounds', async (_event, bounds)
   }
 });
 
-ipcMain.handle('mineradio-desktop-lyrics-set-lock-state', async (_event, locked) => {
+ipcMain.handle('mineradio-desktop-lyrics-set-lock-state', async (event, locked) => {
+  if (!isTrustedDesktopLyricsRenderer(event)) return ipcForbidden();
   try {
     desktopLyricsState = { ...desktopLyricsState, clickThrough: !!locked };
     if (desktopLyricsState.clickThrough !== false) desktopLyricsPointerCapture = false;
@@ -2233,7 +2398,8 @@ ipcMain.handle('mineradio-desktop-lyrics-set-lock-state', async (_event, locked)
   }
 });
 
-ipcMain.handle('mineradio-desktop-lyrics-move-by', async (_event, dx, dy) => {
+ipcMain.handle('mineradio-desktop-lyrics-move-by', async (event, dx, dy) => {
+  if (!isTrustedDesktopLyricsRenderer(event)) return ipcForbidden();
   try {
     if (!desktopLyricsWindow || desktopLyricsWindow.isDestroyed()) return { ok: false, error: 'NO_DESKTOP_LYRICS_WINDOW' };
     if (desktopLyricsState.clickThrough !== false) return { ok: false, error: 'DESKTOP_LYRICS_LOCKED' };
@@ -2251,7 +2417,8 @@ ipcMain.handle('mineradio-desktop-lyrics-move-by', async (_event, dx, dy) => {
   }
 });
 
-ipcMain.handle('mineradio-wallpaper-set-enabled', async (_event, enabled, payload) => {
+ipcMain.handle('mineradio-wallpaper-set-enabled', async (event, enabled, payload) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     if (enabled) createWallpaperWindow(payload || {});
     else closeWallpaperWindow();
@@ -2261,7 +2428,8 @@ ipcMain.handle('mineradio-wallpaper-set-enabled', async (_event, enabled, payloa
   }
 });
 
-ipcMain.handle('mineradio-wallpaper-update', async (_event, payload) => {
+ipcMain.handle('mineradio-wallpaper-update', async (event, payload) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
   try {
     wallpaperState = { ...wallpaperState, ...(payload || {}) };
     if (wallpaperState.enabled) {
@@ -2316,7 +2484,7 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       backgroundThrottling: backgroundRuntimePolicy !== 'keep',
     },
   });
@@ -2334,6 +2502,14 @@ async function createWindow() {
 
   mainWindow.webContents.once('did-finish-load', () => {
     sendWindowState(mainWindow);
+  });
+
+  mainWindow.on('unresponsive', () => {
+    recordDiagnosticEvent('renderer-unresponsive', ['Main renderer stopped responding']);
+  });
+
+  mainWindow.on('responsive', () => {
+    recordDiagnosticEvent('renderer-responsive', ['Main renderer recovered']);
   });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {

@@ -90,6 +90,62 @@ test('createQueueSnapshot uses currentKey to repair a stale index', () => {
   assert.equal(snapshot.currentKey, 'song:2');
 });
 
+test('large online queues preserve items and a current index beyond the old 500 item limit', () => {
+  const queue = Array.from({ length: 750 }, (_, index) => song(index + 1));
+  const snapshot = queueSession.createQueueSnapshot({
+    queue,
+    currentIndex: 620,
+    activePlaybackSong: queue[620],
+  });
+
+  assert.equal(snapshot.queue.length, 750);
+  assert.equal(snapshot.currentIndex, 620);
+  assert.equal(snapshot.currentKey, 'song:621');
+});
+
+test('a 5000 item queue round-trips with its final current song intact', () => {
+  const queue = Array.from({ length: 5000 }, (_, index) => song(index + 1));
+  const serialized = queueSession.serializeQueueSnapshot({
+    queue,
+    currentIndex: 4999,
+    activePlaybackSong: queue[4999],
+  }, { now: 1000 });
+  const restored = queueSession.restoreQueueSnapshot(serialized, { now: 1000 });
+
+  assert.equal(restored.ok, true);
+  assert.equal(restored.state.queue.length, 5000);
+  assert.equal(restored.state.currentIndex, 4999);
+  assert.equal(restored.state.currentKey, 'song:5000');
+});
+
+test('queue truncation preserves an active song just beyond the 5000 item cap', () => {
+  const queue = Array.from({ length: 5001 }, (_, index) => song(index + 1));
+  const snapshot = queueSession.createQueueSnapshot({
+    queue,
+    currentIndex: 5000,
+    activePlaybackSong: queue[5000],
+  });
+
+  assert.equal(snapshot.queue.length, 5000);
+  assert.equal(snapshot.truncated, true);
+  assert.equal(snapshot.currentIndex, 4999);
+  assert.equal(snapshot.currentKey, 'song:5001');
+});
+
+test('queue truncation keeps a middle active item inside the persisted window', () => {
+  const queue = Array.from({ length: 12 }, (_, index) => song(index + 1));
+  const snapshot = queueSession.createQueueSnapshot({
+    queue,
+    currentIndex: 5,
+    activePlaybackSong: queue[5],
+  }, { maxItems: 4 });
+
+  assert.equal(snapshot.queue.length, 4);
+  assert.equal(snapshot.truncated, true);
+  assert.equal(snapshot.currentKey, 'song:6');
+  assert.equal(snapshot.queue[snapshot.currentIndex].id, 6);
+});
+
 test('a position at the track end is reset before persistence', () => {
   const snapshot = queueSession.createQueueSnapshot({
     queue: [song(1)],
@@ -201,4 +257,44 @@ test('moveQueueItem preserves the active song identity', () => {
   assert.deepEqual(result.state.queue.map((item) => item.id), [1, 3, 2]);
   assert.equal(result.state.currentIndex, 2);
   assert.equal(result.state.currentKey, 'song:2');
+});
+
+test('removeQueueItems advances to the next surviving song after removing earlier items and the current song', () => {
+  const queue = Array.from({ length: 10 }, (_, index) => song(index + 1));
+  const result = queueSession.removeQueueItems({
+    queue,
+    currentIndex: 5,
+    currentKey: 'song:6',
+    wasPlaying: true,
+  }, [0, 5], { onRemoveCurrent: 'advance' });
+
+  assert.equal(result.changed, true);
+  assert.equal(result.removedCurrent, true);
+  assert.equal(result.nextAction, 'play-current');
+  assert.equal(result.state.queue[result.state.currentIndex].id, 7);
+  assert.equal(result.state.currentIndex, 4);
+});
+
+test('queue windows use reversible fixed pages and include large indices', () => {
+  assert.deepEqual(queueSession.queueWindowRange(500, 180, 0), { start: 0, end: 180 });
+  assert.equal(queueSession.shiftQueueWindow(500, 180, 0, 1), 180);
+  assert.equal(queueSession.shiftQueueWindow(500, 180, 180, 1), 360);
+  assert.equal(queueSession.shiftQueueWindow(500, 180, 360, -1), 180);
+  assert.deepEqual(queueSession.queueWindowRange(1842, 180, 1841), { start: 1800, end: 1842 });
+});
+
+test('bulk removal and reordering preserve current identity at large indices', () => {
+  const queue = Array.from({ length: 2500 }, (_, index) => song(index + 1));
+  const removed = queueSession.removeQueueItems({
+    queue,
+    currentIndex: 1800,
+    currentKey: 'song:1801',
+  }, [10, 1799]);
+  assert.equal(removed.state.currentIndex, 1798);
+  assert.equal(removed.state.currentKey, 'song:1801');
+
+  const moved = queueSession.moveQueueItem(removed.state, 2200, 100);
+  assert.equal(moved.changed, true);
+  assert.equal(moved.state.currentKey, 'song:1801');
+  assert.equal(moved.state.queue[moved.state.currentIndex].id, 1801);
 });

@@ -18,6 +18,8 @@ const {
   logout,
   user_account,
   user_playlist,
+  user_subcount,
+  user_record,
   comment_music,
   artist_detail,
   artist_top_song,
@@ -31,6 +33,8 @@ const {
   playlist_track_add,
   playlist_create,
   playlist_update,
+  playlist_subscribe,
+  playlist_privacy,
   playlist_delete,
   song_order_update,
   playlist_detail,
@@ -47,7 +51,16 @@ const {
   user_audio,
   dj_paygift,
   record_recent_voice,
+  record_recent_song,
   sati_resource_sub_list,
+  toplist_detail,
+  top_song,
+  album_new,
+  album_sublist,
+  artist_sublist,
+  playlist_catlist,
+  top_playlist,
+  user_cloud,
   lyric,
   lyric_new,
 } = require('NeteaseCloudMusicApi');
@@ -62,8 +75,22 @@ const { fileURLToPath } = require('url');
 const { analyzePodcastDjStream, analyzePodcastDjIntro } = require('./dj-analyzer');
 const {
   getPlaylistEditRestriction,
+  getPlaylistSubscriptionRestriction,
   normalizeNeteaseId,
 } = require('./lib/netease-playlist-policy');
+const {
+  TYPED_SEARCH_TYPES,
+  mapNeteaseAlbum,
+  mapNeteaseArtist,
+  mapNeteasePlaylist,
+  mapNeteasePlaylistMeta,
+  mapPlaylistCategories,
+  mapTypedSearchResult,
+  normalizePagination,
+  normalizePlaylistMetadataPatch,
+  normalizeTypedSearchType,
+  resolvePageCursor,
+} = require('./lib/netease-catalog');
 
 let electronSafeStorage = null;
 try {
@@ -306,6 +333,9 @@ const API_POST_ONLY_ROUTES = new Set([
   '/api/playlist/add-song',
   '/api/playlist/remove-song',
   '/api/playlist/rename',
+  '/api/playlist/update-meta',
+  '/api/playlist/update-metadata',
+  '/api/playlist/subscribe',
   '/api/playlist/delete',
   '/api/playlist/reorder-tracks',
 ]);
@@ -2326,12 +2356,14 @@ async function handleSearch(keywords, limit, offset) {
   }
 
   const total = Math.max(0, Number(resultBody.songCount || mapped.length) || 0);
+  const hasMore = pageOffset + mapped.length < total;
   return {
     songs: mapped,
     total,
     offset: pageOffset,
     limit,
-    hasMore: pageOffset + mapped.length < total,
+    nextOffset: Math.min(total, pageOffset + (hasMore ? limit : mapped.length)),
+    hasMore,
   };
 }
 
@@ -2409,6 +2441,333 @@ async function handleDiscoverHome() {
     },
     updatedAt: Date.now(),
   };
+}
+
+const NETEASE_NEW_SONG_AREAS = Object.freeze({
+  all: 0,
+  zh: 7,
+  ea: 96,
+  jp: 8,
+  kr: 16,
+});
+const NETEASE_NEW_ALBUM_AREAS = new Set(['ALL', 'ZH', 'EA', 'JP', 'KR']);
+const NETEASE_DISCOVER_SECTIONS = new Set([
+  'toplists',
+  'new-songs',
+  'new-albums',
+  'playlist-categories',
+  'playlists',
+  'recent',
+  'cloud',
+  'favorite-albums',
+  'followed-artists',
+  'listening-rank',
+]);
+const NETEASE_PROTECTED_DISCOVER_SECTIONS = new Set([
+  'recent',
+  'cloud',
+  'favorite-albums',
+  'followed-artists',
+  'listening-rank',
+]);
+
+function discoverPageResponse(section, page, total, items, extras, paging) {
+  const list = Array.isArray(items) ? items : [];
+  const cursor = resolvePageCursor(
+    page,
+    total,
+    paging && paging.rawCount != null ? paging.rawCount : list.length,
+    !!(paging && paging.hasMore),
+  );
+  return {
+    ok: true,
+    section,
+    error: '',
+    limit: page.limit,
+    offset: page.offset,
+    ...cursor,
+    empty: list.length === 0,
+    items: list,
+    ...(extras || {}),
+  };
+}
+
+function emptyNeteaseDiscoverResponse(section, limit, offset) {
+  const page = normalizePagination(limit, offset, { defaultLimit: 30, maxLimit: 100 });
+  const specialized = {};
+  if (section === 'toplists') specialized.toplists = [];
+  else if (section === 'new-albums' || section === 'favorite-albums') specialized.albums = [];
+  else if (section === 'followed-artists') specialized.artists = [];
+  else if (section === 'playlists') specialized.playlists = [];
+  else if (section === 'playlist-categories') {
+    specialized.categories = [];
+    specialized.categoryGroups = [];
+  } else specialized.songs = [];
+  return {
+    section,
+    ...page,
+    total: 0,
+    nextOffset: page.offset,
+    more: false,
+    hasMore: false,
+    empty: true,
+    items: [],
+    ...specialized,
+  };
+}
+
+function mapRecentSongRecord(record) {
+  record = record || {};
+  const rawSong = record.data || record.song || record.resource || record;
+  const mapped = mapSongRecord(rawSong);
+  return {
+    ...mapped,
+    playedAt: Number(record.playTime || record.playedAt || record.time || 0) || 0,
+    playCount: Number(record.playCount || record.count || 0) || 0,
+  };
+}
+
+function mapCloudSongRecord(record) {
+  record = record || {};
+  const rawSong = record.simpleSong || record.song || record.resource || {};
+  const mapped = mapSongRecord(rawSong);
+  if (!mapped.id) mapped.id = record.songId || record.id;
+  if (!mapped.name) mapped.name = record.songName || record.fileName || '';
+  if (!mapped.artist) mapped.artist = record.artist || '';
+  if (!mapped.album) mapped.album = record.album || '';
+  return {
+    ...mapped,
+    sourceType: 'netease-cloud',
+    cloud: {
+      fileName: record.fileName || '',
+      fileSize: Number(record.fileSize || 0) || 0,
+      bitrate: Number(record.bitrate || record.bitRate || 0) || 0,
+      addTime: Number(record.addTime || record.uploadTime || 0) || 0,
+    },
+  };
+}
+
+async function handleNeteaseDiscover(section, query) {
+  const page = normalizePagination(query.limit, query.offset, { defaultLimit: 30, maxLimit: 100 });
+  const protectedSection = NETEASE_PROTECTED_DISCOVER_SECTIONS.has(section);
+  let loginInfo = null;
+  if (protectedSection) {
+    loginInfo = query.loginInfo;
+  }
+
+  if (section === 'toplists') {
+    const requestResult = await callPublicNetease(cookie => toplist_detail({ cookie, timestamp: Date.now() }));
+    const body = throwOnNeteaseApiFailure(requestResult.result, 'NETEASE_TOPLISTS_FAILED');
+    const raw = Array.isArray(body.list) ? body.list : [];
+    const total = raw.length;
+    const rawPage = raw.slice(page.offset, page.offset + page.limit);
+    const items = rawPage.map(item => ({
+      ...mapNeteasePlaylist(item),
+      updateFrequency: item.updateFrequency || '',
+      tracks: mapNeteaseSongs(item.tracks || []).slice(0, 3),
+    })).filter(item => item.id && item.name);
+    return discoverPageResponse(section, page, total, items, {
+      toplists: items,
+      requiresLogin: false,
+      loggedIn: requestResult.authExpired ? false : null,
+      authExpired: requestResult.authExpired,
+    }, { rawCount: rawPage.length });
+  }
+
+  if (section === 'new-songs') {
+    const areaKey = String(query.area || 'all').trim().toLowerCase();
+    const numericArea = Number(areaKey);
+    const area = Object.prototype.hasOwnProperty.call(NETEASE_NEW_SONG_AREAS, areaKey)
+      ? NETEASE_NEW_SONG_AREAS[areaKey]
+      : (Object.values(NETEASE_NEW_SONG_AREAS).includes(numericArea) ? numericArea : 0);
+    const requestResult = await callPublicNetease(cookie => top_song({ type: area, cookie, timestamp: Date.now() }));
+    const body = throwOnNeteaseApiFailure(requestResult.result, 'NETEASE_NEW_SONGS_FAILED');
+    const raw = Array.isArray(body.data) ? body.data : (Array.isArray(body.songs) ? body.songs : []);
+    const rawPage = raw.slice(page.offset, page.offset + page.limit);
+    const items = mapNeteaseSongs(rawPage);
+    return discoverPageResponse(section, page, raw.length, items, {
+      songs: items,
+      area,
+      requiresLogin: false,
+      loggedIn: requestResult.authExpired ? false : null,
+      authExpired: requestResult.authExpired,
+    }, { rawCount: rawPage.length });
+  }
+
+  if (section === 'new-albums') {
+    const requestedArea = String(query.area || 'ALL').trim().toUpperCase();
+    const area = NETEASE_NEW_ALBUM_AREAS.has(requestedArea) ? requestedArea : 'ALL';
+    const requestResult = await callPublicNetease(cookie => album_new({
+      area,
+      limit: page.limit,
+      offset: page.offset,
+      cookie,
+      timestamp: Date.now(),
+    }));
+    const body = throwOnNeteaseApiFailure(requestResult.result, 'NETEASE_NEW_ALBUMS_FAILED');
+    const raw = Array.isArray(body.albums) ? body.albums : [];
+    const items = raw.map(mapAlbumRecord).filter(item => item.id && item.name);
+    const total = Math.max(0, Number(body.total || body.albumCount || items.length) || 0);
+    return discoverPageResponse(section, page, total, items, {
+      albums: items,
+      area,
+      requiresLogin: false,
+      loggedIn: requestResult.authExpired ? false : null,
+      authExpired: requestResult.authExpired,
+    }, { rawCount: raw.length, hasMore: body.hasMore === true || body.more === true });
+  }
+
+  if (section === 'playlist-categories') {
+    const requestResult = await callPublicNetease(cookie => playlist_catlist({ cookie, timestamp: Date.now() }));
+    const body = throwOnNeteaseApiFailure(requestResult.result, 'NETEASE_PLAYLIST_CATEGORIES_FAILED');
+    const categoryGroups = mapPlaylistCategories(body);
+    const categories = categoryGroups
+      .flatMap(group => group.items.map(item => item.name))
+      .filter((name, index, list) => name && list.indexOf(name) === index);
+    return {
+      ok: true,
+      section,
+      error: '',
+      empty: categories.length === 0,
+      total: categories.length,
+      categories,
+      categoryGroups,
+      items: categories,
+      requiresLogin: false,
+      loggedIn: requestResult.authExpired ? false : null,
+      authExpired: requestResult.authExpired,
+    };
+  }
+
+  if (section === 'playlists') {
+    const cat = String(query.cat || '全部').trim().slice(0, 30) || '全部';
+    const order = String(query.order || 'hot').toLowerCase() === 'new' ? 'new' : 'hot';
+    const requestResult = await callPublicNetease(cookie => top_playlist({
+      cat,
+      order,
+      limit: page.limit,
+      offset: page.offset,
+      cookie,
+      timestamp: Date.now(),
+    }));
+    const body = throwOnNeteaseApiFailure(requestResult.result, 'NETEASE_PLAYLISTS_FAILED');
+    const raw = Array.isArray(body.playlists) ? body.playlists : [];
+    const items = raw.map(mapNeteasePlaylist).filter(item => item.id && item.name);
+    const total = Math.max(0, Number(body.total || body.playlistCount || items.length) || 0);
+    return discoverPageResponse(section, page, total, items, {
+      playlists: items,
+      cat,
+      order,
+      requiresLogin: false,
+      loggedIn: requestResult.authExpired ? false : null,
+      authExpired: requestResult.authExpired,
+    }, { rawCount: raw.length, hasMore: body.more === true || body.hasMore === true });
+  }
+
+  if (section === 'favorite-albums') {
+    const result = await album_sublist({
+      limit: page.limit,
+      offset: page.offset,
+      cookie: userCookie,
+      timestamp: Date.now(),
+    });
+    const body = throwOnNeteaseApiFailure(result, 'NETEASE_FAVORITE_ALBUMS_FAILED');
+    const raw = Array.isArray(body.data) ? body.data : (Array.isArray(body.albums) ? body.albums : []);
+    const items = raw.map(mapNeteaseAlbum).filter(item => item.id && item.name);
+    const total = Math.max(0, Number(body.count || body.total || items.length) || 0);
+    return discoverPageResponse(section, page, total, items, {
+      albums: items,
+      requiresLogin: true,
+      loggedIn: !!loginInfo,
+      authExpired: false,
+    }, { rawCount: raw.length, hasMore: body.hasMore === true || body.more === true });
+  }
+
+  if (section === 'followed-artists') {
+    const result = await artist_sublist({
+      limit: page.limit,
+      offset: page.offset,
+      cookie: userCookie,
+      timestamp: Date.now(),
+    });
+    const body = throwOnNeteaseApiFailure(result, 'NETEASE_FOLLOWED_ARTISTS_FAILED');
+    const raw = Array.isArray(body.data) ? body.data : (Array.isArray(body.artists) ? body.artists : []);
+    const items = raw.map(mapNeteaseArtist).filter(item => item.id && item.name);
+    const total = Math.max(0, Number(body.count || body.total || items.length) || 0);
+    return discoverPageResponse(section, page, total, items, {
+      artists: items,
+      requiresLogin: true,
+      loggedIn: !!loginInfo,
+      authExpired: false,
+    }, { rawCount: raw.length, hasMore: body.hasMore === true || body.more === true });
+  }
+
+  if (section === 'listening-rank') {
+    const period = String(query.period || '').trim().toLowerCase() === 'week' || String(query.recordType) === '1'
+      ? 'week'
+      : 'all';
+    const result = await user_record({
+      uid: loginInfo.userId,
+      type: period === 'week' ? 1 : 0,
+      cookie: userCookie,
+      timestamp: Date.now(),
+    });
+    const body = throwOnNeteaseApiFailure(result, 'NETEASE_LISTENING_RANK_FAILED');
+    const raw = period === 'week'
+      ? (Array.isArray(body.weekData) ? body.weekData : [])
+      : (Array.isArray(body.allData) ? body.allData : []);
+    const rawPage = raw.slice(page.offset, page.offset + page.limit);
+    const items = rawPage.map((record, index) => ({
+      ...mapSongRecord(record && (record.song || record.data) || {}),
+      rank: page.offset + index + 1,
+      playCount: Number(record && record.playCount || 0) || 0,
+      score: Number(record && record.score || 0) || 0,
+    })).filter(item => item.id && item.name);
+    return discoverPageResponse(section, page, raw.length, items, {
+      songs: items,
+      period,
+      requiresLogin: true,
+      loggedIn: !!loginInfo,
+      authExpired: false,
+    }, { rawCount: rawPage.length });
+  }
+
+  if (section === 'recent') {
+    const fetchLimit = Math.min(1000, page.offset + page.limit);
+    const result = await record_recent_song({ limit: fetchLimit, cookie: userCookie, timestamp: Date.now() });
+    const body = throwOnNeteaseApiFailure(result, 'NETEASE_RECENT_FAILED');
+    const data = body.data || {};
+    const raw = Array.isArray(data.list) ? data.list : (Array.isArray(body.list) ? body.list : []);
+    const rawPage = raw.slice(page.offset, page.offset + page.limit);
+    const items = rawPage
+      .map(mapRecentSongRecord)
+      .filter(item => item.id && item.name);
+    const total = Math.max(0, Number(data.total || body.total || raw.length) || 0);
+    return discoverPageResponse(section, page, total, items, {
+      songs: items,
+      requiresLogin: true,
+      loggedIn: !!loginInfo,
+      authExpired: false,
+    }, { rawCount: rawPage.length });
+  }
+
+  const result = await user_cloud({
+    limit: page.limit,
+    offset: page.offset,
+    cookie: userCookie,
+    timestamp: Date.now(),
+  });
+  const body = throwOnNeteaseApiFailure(result, 'NETEASE_CLOUD_FAILED');
+  const raw = Array.isArray(body.data) ? body.data : (body.data && Array.isArray(body.data.list) ? body.data.list : []);
+  const items = raw.map(mapCloudSongRecord).filter(item => item.id && item.name);
+  const total = Math.max(0, Number(body.count || body.total || body.data && body.data.total || items.length) || 0);
+  return discoverPageResponse(section, page, total, items, {
+    songs: items,
+    size: Number(body.size || body.maxSize || 0) || 0,
+    requiresLogin: true,
+    loggedIn: !!loginInfo,
+    authExpired: false,
+  }, { rawCount: raw.length, hasMore: body.hasMore === true || body.more === true });
 }
 
 const QQ_MUSICU_URL = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
@@ -3989,6 +4348,51 @@ async function callPublicNetease(call) {
   }
   return { result, authExpired };
 }
+
+const NETEASE_PLAYLIST_MANIFEST_TTL_MS = 45 * 1000;
+const NETEASE_PLAYLIST_MANIFEST_CACHE_MAX = 32;
+const neteasePlaylistManifestCache = new Map();
+
+function neteasePlaylistManifestCacheKey(id) {
+  const sessionKey = crypto.createHash('sha256').update(String(userCookie || 'public')).digest('hex').slice(0, 16);
+  return `${id}|${sessionKey}`;
+}
+
+function invalidateNeteasePlaylistManifest(id) {
+  const prefix = `${String(id || '')}|`;
+  for (const key of neteasePlaylistManifestCache.keys()) {
+    if (key.startsWith(prefix)) neteasePlaylistManifestCache.delete(key);
+  }
+}
+
+async function loadNeteasePlaylistManifest(id) {
+  const cacheKey = neteasePlaylistManifestCacheKey(id);
+  const cached = neteasePlaylistManifestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { playlist: cached.playlist, authExpired: false };
+  }
+  if (cached) neteasePlaylistManifestCache.delete(cacheKey);
+
+  const detailRequest = await callPublicNetease(cookie => playlist_detail({
+    id,
+    s: 0,
+    cookie,
+    timestamp: Date.now(),
+  }));
+  const detailBody = throwOnNeteaseApiFailure(detailRequest.result, 'PLAYLIST_DETAIL_FAILED');
+  const playlist = detailBody.playlist;
+  if (playlist && normalizeNeteaseId(playlist.id)) {
+    const currentKey = neteasePlaylistManifestCacheKey(id);
+    neteasePlaylistManifestCache.set(currentKey, {
+      playlist,
+      expiresAt: Date.now() + NETEASE_PLAYLIST_MANIFEST_TTL_MS,
+    });
+    while (neteasePlaylistManifestCache.size > NETEASE_PLAYLIST_MANIFEST_CACHE_MAX) {
+      neteasePlaylistManifestCache.delete(neteasePlaylistManifestCache.keys().next().value);
+    }
+  }
+  return { playlist, authExpired: detailRequest.authExpired };
+}
 function normalizeNeteaseIds(value, max) {
   let raw = value;
   if (typeof raw === 'string' && /^\s*\[/.test(raw)) {
@@ -4002,7 +4406,7 @@ function normalizeNeteaseIds(value, max) {
 function escapeNeteaseBatchString(value) {
   return JSON.stringify(String(value == null ? '' : value)).slice(1, -1);
 }
-async function getOwnedPlaylist(pid, userId) {
+async function getPlaylistForPolicy(pid) {
   let detail;
   try {
     detail = await playlist_detail({ id: pid, s: 0, cookie: userCookie, timestamp: Date.now() });
@@ -4018,12 +4422,30 @@ async function getOwnedPlaylist(pid, userId) {
   if (!playlist || !normalizeNeteaseId(playlist.id)) {
     throw createApiRouteError('PLAYLIST_NOT_FOUND', 404, '歌单不存在');
   }
+  return playlist;
+}
+async function getOwnedPlaylist(pid, userId) {
+  const playlist = await getPlaylistForPolicy(pid);
   const editRestriction = getPlaylistEditRestriction(playlist, userId);
   if (editRestriction === 'PLAYLIST_NOT_OWNED') {
     throw createApiRouteError('PLAYLIST_NOT_OWNED', 403, '只能修改自己创建的歌单', { loggedIn: true, pid });
   }
   if (editRestriction === 'PLAYLIST_SPECIAL_READ_ONLY') {
     throw createApiRouteError('PLAYLIST_SPECIAL_READ_ONLY', 403, '系统特殊歌单不能通过歌单管理功能修改', { loggedIn: true, pid });
+  }
+  return playlist;
+}
+async function getSubscribablePlaylist(pid, userId) {
+  const playlist = await getPlaylistForPolicy(pid);
+  const restriction = getPlaylistSubscriptionRestriction(playlist, userId);
+  if (restriction === 'PLAYLIST_OWNED') {
+    throw createApiRouteError('PLAYLIST_OWNED', 409, '不能订阅自己创建的歌单', { loggedIn: true, pid });
+  }
+  if (restriction === 'PLAYLIST_NOT_PUBLIC') {
+    throw createApiRouteError('PLAYLIST_NOT_PUBLIC', 403, '只能订阅公开歌单', { loggedIn: true, pid });
+  }
+  if (restriction) {
+    throw createApiRouteError(restriction, 404, '歌单不存在', { loggedIn: true, pid });
   }
   return playlist;
 }
@@ -4383,6 +4805,53 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pn === '/api/discover/netease') {
+    const section = String(url.searchParams.get('section') || '').trim().toLowerCase();
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, section, error: 'METHOD_NOT_ALLOWED', items: [] }, 405);
+      return;
+    }
+    if (!NETEASE_DISCOVER_SECTIONS.has(section)) {
+      sendJSON(res, {
+        ok: false,
+        section,
+        error: 'INVALID_DISCOVER_SECTION',
+        supportedSections: Array.from(NETEASE_DISCOVER_SECTIONS),
+        items: [],
+        empty: true,
+      }, 400);
+      return;
+    }
+    const protectedSection = NETEASE_PROTECTED_DISCOVER_SECTIONS.has(section);
+    const emptyResponse = emptyNeteaseDiscoverResponse(
+      section,
+      url.searchParams.get('limit'),
+      url.searchParams.get('offset'),
+    );
+    try {
+      let loginInfo = null;
+      if (protectedSection) {
+        loginInfo = await requireLogin(res, { ...emptyResponse, requiresLogin: true });
+        if (!loginInfo) return;
+      }
+      const result = await handleNeteaseDiscover(section, {
+        limit: url.searchParams.get('limit'),
+        offset: url.searchParams.get('offset'),
+        area: url.searchParams.get('area'),
+        cat: url.searchParams.get('cat'),
+        order: url.searchParams.get('order'),
+        period: url.searchParams.get('period'),
+        recordType: url.searchParams.get('type'),
+        loginInfo,
+      });
+      sendJSON(res, result);
+    } catch (err) {
+      console.error('[NeteaseDiscover:' + section + ']', err);
+      sendNeteaseApiFailure(res, err, 'NETEASE_DISCOVER_FAILED', emptyResponse, protectedSection);
+    }
+    return;
+  }
+
   if (pn === '/api/weather/radio') {
     try {
       const data = await buildWeatherRadio({
@@ -4426,6 +4895,84 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[Search]', err);
       sendJSON(res, { ok: false, error: err.message, songs: [], total: 0, hasMore: false }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/search/typed') {
+    const keywords = String(url.searchParams.get('keywords') || '').trim().slice(0, 120);
+    const type = normalizeTypedSearchType(url.searchParams.get('type'));
+    const page = normalizePagination(url.searchParams.get('limit'), url.searchParams.get('offset'), {
+      defaultLimit: 24,
+      maxLimit: 50,
+    });
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED', type, keywords, ...page, total: 0, items: [] }, 405);
+      return;
+    }
+    if (!keywords) {
+      sendJSON(res, { ok: false, error: 'MISSING_KEYWORDS', type, keywords, ...page, total: 0, hasMore: false, items: [], empty: true }, 400);
+      return;
+    }
+    if (!type) {
+      sendJSON(res, {
+        ok: false,
+        error: 'INVALID_SEARCH_TYPE',
+        supportedTypes: Object.keys(TYPED_SEARCH_TYPES),
+        type,
+        keywords,
+        ...page,
+        total: 0,
+        hasMore: false,
+        items: [],
+        empty: true,
+      }, 400);
+      return;
+    }
+    try {
+      const requestResult = await callPublicNetease(cookie => cloudsearch({
+        keywords,
+        type: TYPED_SEARCH_TYPES[type].apiType,
+        limit: page.limit,
+        offset: page.offset,
+        cookie,
+        timestamp: Date.now(),
+      }));
+      const body = throwOnNeteaseApiFailure(requestResult.result, 'TYPED_SEARCH_FAILED');
+      const mapped = mapTypedSearchResult(body, type);
+      const hasMore = page.offset + mapped.items.length < mapped.total;
+      sendJSON(res, {
+        ok: true,
+        requiresLogin: false,
+        loggedIn: requestResult.authExpired ? false : null,
+        authExpired: requestResult.authExpired,
+        error: '',
+        type,
+        keywords,
+        ...page,
+        total: mapped.total,
+        nextOffset: Math.min(mapped.total, page.offset + (hasMore ? page.limit : mapped.items.length)),
+        more: hasMore,
+        hasMore,
+        empty: mapped.items.length === 0,
+        items: mapped.items,
+        [mapped.listKey]: mapped.items,
+      });
+    } catch (err) {
+      console.error('[TypedSearch:' + type + ']', err);
+      sendNeteaseApiFailure(res, err, 'TYPED_SEARCH_FAILED', {
+        type,
+        keywords,
+        ...page,
+        total: 0,
+        more: false,
+        hasMore: false,
+        empty: true,
+        items: [],
+        artists: [],
+        albums: [],
+        playlists: [],
+      }, false);
     }
     return;
   }
@@ -4845,25 +5392,80 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 用户歌单 ----------
   if (pn === '/api/user/playlists') {
+    const page = normalizePagination(url.searchParams.get('limit'), url.searchParams.get('offset'), {
+      defaultLimit: 60,
+      maxLimit: 200,
+    });
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED', loggedIn: null, playlists: [], total: 0, more: false, hasMore: false, ...page }, 405);
+      return;
+    }
     try {
-      const info = await getLoginInfo();
-      if (!info.loggedIn || !info.userId) { sendJSON(res, { loggedIn: false, playlists: [] }); return; }
-      const limit = Math.max(12, Math.min(100, parseInt(url.searchParams.get('limit') || '60', 10) || 60));
-      const r = await user_playlist({ uid: info.userId, limit, cookie: userCookie, timestamp: Date.now() });
-      const list = ((r.body && r.body.playlist) || []).map(pl => ({
-        id: pl.id,
-        name: pl.name,
-        cover: pl.coverImgUrl || '',
-        trackCount: pl.trackCount || 0,
-        playCount: pl.playCount || 0,
-        creator: (pl.creator && pl.creator.nickname) || '',
-        subscribed: !!pl.subscribed,
-        specialType: pl.specialType || 0,
-      }));
-      sendJSON(res, { loggedIn: true, userId: info.userId, playlists: list });
+      const info = await requireLogin(res, { playlists: [], total: 0, more: false, hasMore: false, ...page });
+      if (!info) return;
+      const countPromise = typeof user_subcount === 'function'
+        ? user_subcount({ cookie: userCookie, timestamp: Date.now() }).catch(err => {
+          console.warn('[UserPlaylists] count unavailable:', err.message);
+          return null;
+        })
+        : Promise.resolve(null);
+      const [result, countResult] = await Promise.all([
+        user_playlist({
+          uid: info.userId,
+          limit: page.limit,
+          offset: page.offset,
+          cookie: userCookie,
+          timestamp: Date.now(),
+        }),
+        countPromise,
+      ]);
+      const body = throwOnNeteaseApiFailure(result, 'USER_PLAYLISTS_FAILED');
+      const playlists = (Array.isArray(body.playlist) ? body.playlist : [])
+        .map(mapNeteasePlaylist)
+        .filter(playlist => playlist.id && playlist.name);
+
+      let total = Number(body.total || body.count || body.playlistCount);
+      let totalExact = Number.isFinite(total) && total >= 0;
+      if (!totalExact && countResult) {
+        const countBody = countResult.body || countResult || {};
+        const createdCount = Number(countBody.createdPlaylistCount);
+        const subscribedCount = Number(countBody.subPlaylistCount);
+        if (Number.isFinite(createdCount) && Number.isFinite(subscribedCount)) {
+          total = Math.max(0, createdCount) + Math.max(0, subscribedCount);
+          totalExact = true;
+        }
+      }
+      const moreFromApi = body.more === true || body.hasMore === true;
+      const minimumTotal = page.offset + playlists.length + (moreFromApi ? 1 : 0);
+      if (!totalExact) total = minimumTotal;
+      else total = Math.max(total, page.offset + playlists.length);
+      const hasMore = moreFromApi || page.offset + playlists.length < total;
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        authExpired: false,
+        error: '',
+        userId: info.userId,
+        ...page,
+        total,
+        nextOffset: page.offset + (hasMore ? page.limit : playlists.length),
+        totalExact,
+        more: hasMore,
+        hasMore,
+        empty: playlists.length === 0,
+        playlists,
+      });
     } catch (err) {
       console.error('[UserPlaylists]', err);
-      sendJSON(res, { error: err.message, loggedIn: false, playlists: [] }, 500);
+      sendNeteaseApiFailure(res, err, 'USER_PLAYLISTS_FAILED', {
+        playlists: [],
+        total: 0,
+        totalExact: false,
+        more: false,
+        hasMore: false,
+        empty: true,
+        ...page,
+      }, true);
     }
     return;
   }
@@ -5135,6 +5737,7 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, { loggedIn: true, pid, id, success: false, code: finalCode, error: finalMessage || 'PLAYLIST_ADD_FAILED', attempts }, finalCode === 401 ? 401 : 409);
         return;
       }
+      invalidateNeteasePlaylistManifest(pid);
       sendJSON(res, { loggedIn: true, pid, id, success: true, code: finalCode, body: finalBody, attempts });
     } catch (err) {
       console.error('[PlaylistAddSong]', err);
@@ -5174,6 +5777,7 @@ const server = http.createServer(async (req, res) => {
         timestamp: Date.now(),
       });
       const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_REMOVE_SONG_FAILED');
+      invalidateNeteasePlaylistManifest(pid);
       sendJSON(res, {
         ok: true,
         loggedIn: true,
@@ -5218,6 +5822,7 @@ const server = http.createServer(async (req, res) => {
         timestamp: Date.now(),
       });
       const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_RENAME_FAILED');
+      invalidateNeteasePlaylistManifest(pid);
       sendJSON(res, {
         ok: true,
         loggedIn: true,
@@ -5230,6 +5835,124 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[PlaylistRename]', err);
       sendNeteaseApiFailure(res, err, 'PLAYLIST_RENAME_FAILED', {}, true);
+    }
+    return;
+  }
+
+  // ---------- 更新自己的歌单元数据 ----------
+  if (pn === '/api/playlist/update-meta' || pn === '/api/playlist/update-metadata') {
+    try {
+      const info = await requireLogin(res);
+      if (!info) return;
+      const body = await readRequestBody(req);
+      const pid = normalizeNeteaseId(body.pid || body.id || url.searchParams.get('pid'));
+      if (!pid) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_PLAYLIST_ID' }, 400);
+        return;
+      }
+      const playlist = await getOwnedPlaylist(pid, info.userId);
+      const normalized = normalizePlaylistMetadataPatch(body, playlist);
+      if (!normalized.ok) {
+        sendJSON(res, { ok: false, loggedIn: true, error: normalized.error, pid }, 400);
+        return;
+      }
+      const metadata = normalized.metadata;
+      if (normalized.changed.privacy && metadata.privacy !== 0) {
+        throw createApiRouteError(
+          'PLAYLIST_PRIVACY_UNSUPPORTED',
+          409,
+          '网易云当前只允许把隐私歌单改为公开，不能把已有公开歌单改为隐私歌单',
+          { loggedIn: true, pid },
+        );
+      }
+
+      const results = {};
+      if (normalized.changed.name || normalized.changed.description || normalized.changed.tags) {
+        const result = await playlist_update({
+          id: pid,
+          name: escapeNeteaseBatchString(metadata.name),
+          desc: escapeNeteaseBatchString(metadata.description),
+          tags: escapeNeteaseBatchString(metadata.tags.join(';')),
+          cookie: userCookie,
+          timestamp: Date.now(),
+        });
+        results.metadata = throwOnNeteaseApiFailure(result, 'PLAYLIST_METADATA_UPDATE_FAILED');
+      }
+      if (normalized.changed.privacy) {
+        const result = await playlist_privacy({ id: pid, cookie: userCookie, timestamp: Date.now() });
+        results.privacy = throwOnNeteaseApiFailure(result, 'PLAYLIST_PRIVACY_UPDATE_FAILED');
+      }
+      invalidateNeteasePlaylistManifest(pid);
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        pid,
+        metadata,
+        changed: normalized.changed,
+        body: results,
+      });
+    } catch (err) {
+      console.error('[PlaylistUpdateMeta]', err);
+      sendNeteaseApiFailure(res, err, 'PLAYLIST_METADATA_UPDATE_FAILED', {}, true);
+    }
+    return;
+  }
+
+  // ---------- 订阅或取消订阅公开歌单 ----------
+  if (pn === '/api/playlist/subscribe') {
+    try {
+      const info = await requireLogin(res);
+      if (!info) return;
+      const body = await readRequestBody(req);
+      const pid = normalizeNeteaseId(body.pid || body.id || url.searchParams.get('pid'));
+      const hasSubscribe = Object.prototype.hasOwnProperty.call(body, 'subscribe')
+        || Object.prototype.hasOwnProperty.call(body, 'subscribed');
+      const subscribeValue = Object.prototype.hasOwnProperty.call(body, 'subscribe') ? body.subscribe : body.subscribed;
+      const subscribe = subscribeValue === true || subscribeValue === 1 || String(subscribeValue).toLowerCase() === 'true';
+      if (!pid) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_PLAYLIST_ID' }, 400);
+        return;
+      }
+      if (!hasSubscribe || ![true, false, 1, 0, 'true', 'false', '1', '0'].includes(subscribeValue)) {
+        sendJSON(res, { ok: false, loggedIn: true, error: 'INVALID_SUBSCRIBE_STATE', pid }, 400);
+        return;
+      }
+      const playlist = await getSubscribablePlaylist(pid, info.userId);
+      if (!!playlist.subscribed === subscribe) {
+        invalidateNeteasePlaylistManifest(pid);
+        sendJSON(res, {
+          ok: true,
+          loggedIn: true,
+          error: '',
+          pid,
+          subscribed: subscribe,
+          changed: false,
+          code: 200,
+        });
+        return;
+      }
+      const result = await playlist_subscribe({
+        id: pid,
+        t: subscribe ? 1 : 0,
+        cookie: userCookie,
+        timestamp: Date.now(),
+      });
+      const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_SUBSCRIBE_FAILED');
+      invalidateNeteasePlaylistManifest(pid);
+      sendJSON(res, {
+        ok: true,
+        loggedIn: true,
+        error: '',
+        pid,
+        subscribed: subscribe,
+        changed: true,
+        code: normalizeApiCode(result) || 200,
+        body: resultBody,
+      });
+    } catch (err) {
+      console.error('[PlaylistSubscribe]', err);
+      sendNeteaseApiFailure(res, err, 'PLAYLIST_SUBSCRIBE_FAILED', { subscribed: null, changed: false }, true);
     }
     return;
   }
@@ -5248,6 +5971,7 @@ const server = http.createServer(async (req, res) => {
       await getOwnedPlaylist(pid, info.userId);
       const result = await playlist_delete({ id: pid, cookie: userCookie, timestamp: Date.now() });
       const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_DELETE_FAILED');
+      invalidateNeteasePlaylistManifest(pid);
       sendJSON(res, {
         ok: true,
         loggedIn: true,
@@ -5299,6 +6023,7 @@ const server = http.createServer(async (req, res) => {
         timestamp: Date.now(),
       });
       const resultBody = throwOnNeteaseApiFailure(result, 'PLAYLIST_REORDER_FAILED');
+      invalidateNeteasePlaylistManifest(pid);
       sendJSON(res, {
         ok: true,
         loggedIn: true,
@@ -5425,37 +6150,99 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 歌单曲目详情 ----------
   if (pn === '/api/playlist/tracks') {
+    const page = normalizePagination(url.searchParams.get('limit'), url.searchParams.get('offset'), {
+      defaultLimit: 500,
+      maxLimit: 500,
+    });
+    if (req.method !== 'GET') {
+      sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED', playlist: null, tracks: [], total: 0, more: false, hasMore: false, ...page }, 405);
+      return;
+    }
     try {
-      const id = url.searchParams.get('id');
-      if (!id) { sendJSON(res, { error: 'Missing playlist id', tracks: [] }, 400); return; }
+      const id = normalizeNeteaseId(url.searchParams.get('id'));
+      if (!id) {
+        sendJSON(res, { ok: false, error: 'INVALID_PLAYLIST_ID', playlist: null, tracks: [], total: 0, more: false, hasMore: false, ...page }, 400);
+        return;
+      }
 
-      let playlistMeta = { id, name: '', cover: '', trackCount: 0 };
+      const manifest = await loadNeteasePlaylistManifest(id);
+      let authExpired = manifest.authExpired;
+      const playlist = manifest.playlist;
+      if (!playlist || !normalizeNeteaseId(playlist.id)) {
+        throw createApiRouteError('PLAYLIST_NOT_FOUND', 404, '歌单不存在');
+      }
+      const playlistMeta = mapNeteasePlaylistMeta(playlist, id);
+      const trackIds = (Array.isArray(playlist.trackIds) ? playlist.trackIds : [])
+        .map(item => normalizeNeteaseId(item && (item.id || item)))
+        .filter(Boolean);
+      const total = Math.max(
+        0,
+        Number(playlist.trackCount || 0) || 0,
+        trackIds.length,
+        Array.isArray(playlist.tracks) ? playlist.tracks.length : 0,
+      );
       let rawTracks = [];
 
-      // 新版本 NeteaseCloudMusicApi 通常提供 playlist_track_all；旧版本退回 playlist_detail。
-      if (typeof playlist_track_all === 'function') {
-        try {
-          const all = await playlist_track_all({ id, limit: 500, offset: 0, cookie: userCookie, timestamp: Date.now() });
-          rawTracks = (all.body && (all.body.songs || all.body.tracks)) || [];
-        } catch (err) {
-          console.warn('[PlaylistTracks] playlist_track_all failed, fallback to detail:', err.message);
+      if (page.offset < total) {
+        const selectedIds = trackIds.slice(page.offset, page.offset + page.limit);
+        if (selectedIds.length) {
+          const songRequest = await callPublicNetease(cookie => song_detail({
+            ids: selectedIds.join(','),
+            cookie,
+            timestamp: Date.now(),
+          }));
+          authExpired = authExpired || songRequest.authExpired;
+          const songBody = throwOnNeteaseApiFailure(songRequest.result, 'PLAYLIST_TRACK_DETAILS_FAILED');
+          const songs = Array.isArray(songBody.songs) ? songBody.songs : [];
+          const songsById = new Map(songs.map(song => [normalizeNeteaseId(song.id), song]));
+          rawTracks = selectedIds.map(songId => songsById.get(songId)).filter(Boolean);
+        } else if (Array.isArray(playlist.tracks) && playlist.tracks.length > page.offset) {
+          rawTracks = (Array.isArray(playlist.tracks) ? playlist.tracks : [])
+            .slice(page.offset, page.offset + page.limit);
         }
       }
 
-      if (!rawTracks.length && typeof playlist_detail === 'function') {
-        const detail = await playlist_detail({ id, s: 0, cookie: userCookie, timestamp: Date.now() });
-        const pl = (detail.body && detail.body.playlist) || {};
-        playlistMeta = { id: pl.id || id, name: pl.name || '', cover: pl.coverImgUrl || '', trackCount: pl.trackCount || 0 };
-        rawTracks = pl.tracks || [];
+      if (!rawTracks.length && page.offset < total && typeof playlist_track_all === 'function') {
+        const pageRequest = await callPublicNetease(cookie => playlist_track_all({
+          id,
+          limit: page.limit,
+          offset: page.offset,
+          cookie,
+          timestamp: Date.now(),
+        }));
+        authExpired = authExpired || pageRequest.authExpired;
+        const pageBody = throwOnNeteaseApiFailure(pageRequest.result, 'PLAYLIST_TRACKS_FAILED');
+        rawTracks = pageBody.songs || pageBody.tracks || [];
       }
 
-      const tracks = rawTracks.map(mapSongRecord).filter(t => t.id);
-
-      if (!playlistMeta.trackCount) playlistMeta.trackCount = tracks.length;
-      sendJSON(res, { playlist: playlistMeta, tracks });
+      const tracks = mapNeteaseSongs(rawTracks);
+      const hasMore = page.offset + page.limit < total;
+      sendJSON(res, {
+        ok: true,
+        requiresLogin: false,
+        loggedIn: authExpired ? false : null,
+        authExpired,
+        error: '',
+        ...page,
+        total,
+        nextOffset: Math.min(total, page.offset + (hasMore ? page.limit : rawTracks.length)),
+        more: hasMore,
+        hasMore,
+        empty: tracks.length === 0,
+        playlist: { ...playlistMeta, trackCount: total },
+        tracks,
+      });
     } catch (err) {
       console.error('[PlaylistTracks]', err);
-      sendJSON(res, { error: err.message, tracks: [] }, 500);
+      sendNeteaseApiFailure(res, err, 'PLAYLIST_TRACKS_FAILED', {
+        playlist: null,
+        tracks: [],
+        total: 0,
+        more: false,
+        hasMore: false,
+        empty: true,
+        ...page,
+      }, isNeteaseAuthInvalidPayload(err));
     }
     return;
   }

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:ui
+      - run: node --check server.js
+      - run: node --check desktop/main.js
+      - run: node --check desktop/preload.js
+      - run: node --check desktop/overlay-preload.js
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build:win:dir:unsigned

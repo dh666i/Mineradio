@@ -69,6 +69,16 @@
       '.queue-item .queue-main-hit{display:flex;align-items:center;gap:10px;min-width:0;flex:1;border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}',
       '.queue-selection-tools{display:flex;align-items:center;gap:6px;margin:7px 0}',
       '.queue-selection-count{font-size:10px;color:rgba(255,255,255,.42);margin-right:auto}',
+      '.queue-window-nav{display:grid;grid-template-columns:30px minmax(0,1fr) 30px;align-items:center;gap:8px;min-height:34px;margin:5px 0;padding:2px 4px}',
+      '.queue-window-nav button{width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.08);border-radius:6px;background:rgba(255,255,255,.035);color:rgba(255,255,255,.62);font:18px/1 inherit;cursor:pointer}',
+      '.queue-window-nav button:hover,.queue-window-nav button:focus-visible{background:rgba(255,255,255,.075);color:#fff}',
+      '.queue-window-nav button:disabled{opacity:.22;cursor:default}',
+      '.queue-window-info,.mini-queue-window-info{text-align:center;color:rgba(255,255,255,.35);font-size:9.5px}',
+      '.queue-window-nav .queue-window-info{width:100%;min-width:0;height:30px;border:0;background:transparent;font:inherit;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}',
+      '.queue-window-nav .queue-window-info:hover,.queue-window-nav .queue-window-info:focus-visible{background:rgba(255,255,255,.045);color:rgba(255,255,255,.72)}',
+      '.mini-queue-window-info{padding:6px 4px 2px}',
+      '.mini-queue-open-full{display:block;margin:5px auto 1px;padding:5px 9px;border:0;border-radius:5px;background:transparent;color:rgba(255,255,255,.5);font:inherit;font-size:10px;cursor:pointer}',
+      '.mini-queue-open-full:hover,.mini-queue-open-full:focus-visible{background:rgba(255,255,255,.06);color:#fff}',
       '.queue-row-manage{display:flex;gap:4px;margin-left:auto}',
       '.queue-row-manage button,.pl-owner-action,.pl-track-manage{height:26px;padding:0 8px;border:1px solid rgba(255,255,255,.09);border-radius:6px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.55);font:inherit;font-size:10px;cursor:pointer}',
       '.pl-owner-action.danger,.pl-track-manage.danger{color:#ff8ca0}',
@@ -123,6 +133,11 @@
           parseError.payload = null;
           throw parseError;
         }
+      }
+      if (payload && payload.authExpired === true) {
+        try {
+          window.dispatchEvent(new CustomEvent('mineradio:netease-auth-expired', { detail: payload }));
+        } catch (_) {}
       }
       if (!response.ok) {
         var httpError = new Error((payload && (payload.message || payload.errorReason || payload.error)) || ('HTTP ' + response.status));
@@ -517,6 +532,11 @@
   var queueSelectionMode = false;
   var queueSelection = new Set();
   var queueDragIndex = -1;
+  var QUEUE_RENDER_BATCH = 180;
+  var MINI_QUEUE_RENDER_BATCH = 120;
+  var queueRenderStart = 0;
+  var queueRenderFollowCurrent = true;
+  var queueRenderQueueRef = playQueue;
 
   function playbackWasActive() { return !!(audio && audio.src && !audio.paused && !audio.ended); }
   function updatePlaybackPresence() {
@@ -612,7 +632,7 @@
     };
     renderSelectedSongPaused(playQueue[currentIdx]);
     if (typeof updatePlayModeButton === 'function') updatePlayModeButton(false);
-    renderQueuePanelV140({ animate: false });
+    renderQueuePanelV140({ animate: false, preserveWindow: true });
     showToast(pendingResume.seconds > 1 ? '已恢复上次队列和播放位置' : '已恢复上次队列');
     return true;
   }
@@ -656,7 +676,7 @@
     showToast('已撤销');
   }
 
-  function moveQueueItemV140(from, to, announce) {
+  function moveQueueItemV140(from, to, announce, renderOptions) {
     from = finite(from, -1); to = finite(to, -1);
     if (from < 0 || to < 0 || from >= playQueue.length || to >= playQueue.length || from === to) return false;
     if (queueCore && queueCore.moveQueueItem) {
@@ -670,7 +690,7 @@
       playQueue.splice(to, 0, item);
       currentIdx = current ? playQueue.indexOf(current) : -1;
     }
-    renderQueuePanelV140({ animate: false });
+    renderQueuePanelV140(Object.assign({ animate: false, preserveWindow: true }, renderOptions || {}));
     safeShelfRebuild('queue-reorder');
     scheduleQueueSessionSave();
     if (announce) showToast('已调整队列顺序');
@@ -705,6 +725,28 @@
       '<button class="fx-mini-btn ghost" type="button" onclick="selectAllQueueItems()">全选</button>' +
       '<button class="fx-mini-btn ghost" type="button" onclick="removeSelectedQueueItems()"' + (queueSelection.size ? '' : ' disabled') + '>移除</button>';
   }
+  function renderQueueWindowNavigation(start, end) {
+    var pane = byId('queue-pane');
+    var list = byId('queue-list');
+    if (!pane || !list) return;
+    var host = byId('queue-window-nav');
+    if (playQueue.length <= QUEUE_RENDER_BATCH) {
+      if (host) host.remove();
+      return;
+    }
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'queue-window-nav';
+      host.className = 'queue-window-nav';
+      host.setAttribute('role', 'navigation');
+      host.setAttribute('aria-label', '队列分页');
+      pane.insertBefore(host, list);
+    }
+    host.innerHTML =
+      '<button type="button" title="上一段" aria-label="显示上一段队列" onclick="shiftQueueRenderWindow(-1)"' + (start <= 0 ? ' disabled' : '') + '>‹</button>' +
+      '<button class="queue-window-info" type="button" title="定位到当前歌曲" aria-label="定位到当前歌曲" onclick="followCurrentQueueWindow()">' + (start + 1) + '-' + end + ' / ' + playQueue.length + (currentIdx >= 0 ? ' · 当前 ' + (currentIdx + 1) : '') + '</button>' +
+      '<button type="button" title="下一段" aria-label="显示下一段队列" onclick="shiftQueueRenderWindow(1)"' + (end >= playQueue.length ? ' disabled' : '') + '>›</button>';
+  }
   function renderMiniQueueV140(opts) {
     opts = opts || {};
     var list = byId('mini-queue-list');
@@ -716,14 +758,23 @@
       list.innerHTML = '<div class="mini-queue-empty">队列为空，先搜索或打开歌单</div>';
       return;
     }
-    list.innerHTML = playQueue.map(function (song, index) {
+    var miniMaxStart = Math.max(0, playQueue.length - MINI_QUEUE_RENDER_BATCH);
+    var miniStart = currentIdx >= 0
+      ? clamp(currentIdx - Math.floor(MINI_QUEUE_RENDER_BATCH / 3), 0, miniMaxStart)
+      : 0;
+    var miniEnd = Math.min(playQueue.length, miniStart + MINI_QUEUE_RENDER_BATCH);
+    list.innerHTML = playQueue.slice(miniStart, miniEnd).map(function (song, localIndex) {
+      var index = miniStart + localIndex;
       var thumb = songCoverSrc(song, 60);
       var image = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" onerror="this.style.opacity=.2">' : '<div class="mini-queue-cover"></div>';
       return '<div class="mini-queue-item' + (index === currentIdx ? ' now' : '') + '" role="option" aria-selected="' + (index === currentIdx ? 'true' : 'false') + '" tabindex="0" data-mini-queue-index="' + index + '" onclick="playQueueAt(' + index + ')">' + image +
         '<div class="mini-queue-info"><div class="mini-queue-name">' + escHtml(song.name || '') + '</div><div class="mini-queue-sub">' + escHtml(song.artist || '') + '</div></div>' +
         '<button class="mini-queue-remove mini-queue-next" type="button" onclick="event.stopPropagation();queueIndexNext(' + index + ')" title="下一首播放">下</button>' +
         '<button class="mini-queue-remove" type="button" onclick="event.stopPropagation();removeFromQueue(' + index + ')" title="移除">×</button></div>';
-    }).join('');
+    }).join('') + (playQueue.length > MINI_QUEUE_RENDER_BATCH
+      ? '<div class="mini-queue-window-info">显示 ' + (miniStart + 1) + '-' + miniEnd + ' / ' + playQueue.length + '</div>' +
+        '<button class="mini-queue-open-full" type="button" onclick="event.stopPropagation();closeMiniQueue();openPlaylistPanelTab(\'queue\')">查看完整队列</button>'
+      : '');
     if (opts.scrollCurrent) requestAnimationFrame(function () {
       var active = list.querySelector('.mini-queue-item.now');
       if (active && typeof smoothScrollToItem === 'function') smoothScrollToItem(list, active, { duration: .3, align: .42 });
@@ -735,16 +786,44 @@
     opts = opts || {};
     var list = byId('queue-list');
     if (!list) return;
+    var queueReplaced = queueRenderQueueRef !== playQueue;
+    if (queueReplaced) {
+      queueRenderQueueRef = playQueue;
+      if (opts.preserveWindow !== true) {
+        queueRenderFollowCurrent = true;
+        queueRenderStart = 0;
+      }
+    }
+    if (opts.resetWindow || opts.followCurrent) queueRenderFollowCurrent = true;
     if (!playQueue.length) {
+      queueRenderStart = 0;
       list.innerHTML = '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">队列为空，搜索后可设为下一首</div>';
+      renderQueueWindowNavigation(0, 0);
       renderQueueSelectionTools();
       renderMiniQueueV140();
       updatePlaybackPresence();
       return;
     }
+    var explicitWindow = isFinite(Number(opts.windowStart));
+    if (explicitWindow) {
+      queueRenderStart = queueCore && queueCore.queueWindowStart
+        ? queueCore.queueWindowStart(playQueue.length, QUEUE_RENDER_BATCH, Number(opts.windowStart))
+        : Math.floor(clamp(Number(opts.windowStart), 0, playQueue.length - 1) / QUEUE_RENDER_BATCH) * QUEUE_RENDER_BATCH;
+      queueRenderFollowCurrent = false;
+    } else if (queueRenderFollowCurrent && currentIdx >= 0) {
+      queueRenderStart = queueCore && queueCore.queueWindowStart
+        ? queueCore.queueWindowStart(playQueue.length, QUEUE_RENDER_BATCH, currentIdx)
+        : Math.floor(currentIdx / QUEUE_RENDER_BATCH) * QUEUE_RENDER_BATCH;
+    } else {
+      queueRenderStart = queueCore && queueCore.queueWindowStart
+        ? queueCore.queueWindowStart(playQueue.length, QUEUE_RENDER_BATCH, queueRenderStart)
+        : Math.floor(clamp(queueRenderStart, 0, playQueue.length - 1) / QUEUE_RENDER_BATCH) * QUEUE_RENDER_BATCH;
+    }
+    var windowEnd = Math.min(playQueue.length, queueRenderStart + QUEUE_RENDER_BATCH);
     list.setAttribute('role', 'listbox');
     list.setAttribute('aria-label', '接下来播放');
-    list.innerHTML = playQueue.map(function (song, index) {
+    var rows = playQueue.slice(queueRenderStart, windowEnd).map(function (song, localIndex) {
+      var index = queueRenderStart + localIndex;
       var thumb = songCoverSrc(song, 60);
       var image = thumb ? '<img src="' + escHtml(thumb) + '" alt="" loading="lazy" onerror="this.style.opacity=.2">' : '<div style="width:38px;height:38px;border-radius:6px;background:rgba(255,255,255,.06);flex:0 0 auto"></div>';
       var selected = queueSelection.has(song);
@@ -755,12 +834,33 @@
           '<span class="qi-info"><span class="qi-name">' + escHtml(song.name || '') + '</span><span class="qi-sub"><span class="queue-artist-link">' + escHtml(song.artist || '未知歌手') + '</span></span></span></button>' +
         queueActionButtons(song, index) + '</div>';
     }).join('');
+    list.innerHTML = rows;
+    renderQueueWindowNavigation(queueRenderStart, windowEnd);
     renderQueueSelectionTools();
     renderMiniQueueV140({ scrollCurrent: miniQueueOpen });
     updatePlaybackPresence();
     if (opts.animate && window.gsap) animateListItems(list, '.queue-item', { x: -8, y: 6, stagger: .01, duration: .2, limit: 16 });
   }
   window.renderQueuePanel = renderQueuePanelV140;
+  window.shiftQueueRenderWindow = function (direction) {
+    direction = direction < 0 ? -1 : 1;
+    queueRenderStart = queueCore && queueCore.shiftQueueWindow
+      ? queueCore.shiftQueueWindow(playQueue.length, QUEUE_RENDER_BATCH, queueRenderStart, direction)
+      : Math.floor(clamp(queueRenderStart + direction * QUEUE_RENDER_BATCH, 0, Math.max(0, playQueue.length - 1)) / QUEUE_RENDER_BATCH) * QUEUE_RENDER_BATCH;
+    renderQueuePanelV140({ animate: false, windowStart: queueRenderStart });
+    var panel = byId('playlist-panel');
+    if (panel) panel.scrollTop = 0;
+  };
+  window.followCurrentQueueWindow = function () {
+    queueRenderFollowCurrent = true;
+    renderQueuePanelV140({ animate: false, followCurrent: true });
+    var panel = byId('playlist-panel');
+    if (panel) panel.scrollTop = 0;
+    requestAnimationFrame(function () {
+      var active = byId('queue-list') && byId('queue-list').querySelector('.queue-item.now');
+      if (active) active.focus();
+    });
+  };
 
   var legacySafeRenderQueuePanel = window.safeRenderQueuePanel;
   window.safeRenderQueuePanel = function (reason, opts) {
@@ -793,17 +893,35 @@
     var removedCurrent = queueSelection.has(selectedSong());
     var wasPlaying = playbackWasActive();
     var oldIndex = currentIdx;
-    playQueue = playQueue.filter(function (song) { return !queueSelection.has(song); });
+    var selectedIndices = [];
+    playQueue.forEach(function (song, index) { if (queueSelection.has(song)) selectedIndices.push(index); });
+    if (queueCore && queueCore.removeQueueItems) {
+      var removal = queueCore.removeQueueItems({
+        queue: playQueue,
+        currentIndex: currentIdx,
+        currentKey: keyFor(selectedSong()),
+        positionSeconds: audio && audio.currentTime || 0,
+        wasPlaying: wasPlaying
+      }, selectedIndices, { onRemoveCurrent: 'advance' });
+      if (!removal.changed) return;
+      playQueue = removal.state.queue;
+      currentIdx = removal.state.currentIndex;
+      removedCurrent = removal.removedCurrent;
+    } else {
+      var removedBeforeCurrent = selectedIndices.filter(function (index) { return index < oldIndex; }).length;
+      var currentSong = selectedSong();
+      playQueue = playQueue.filter(function (song) { return !queueSelection.has(song); });
+      if (!playQueue.length) currentIdx = -1;
+      else if (removedCurrent) currentIdx = Math.min(Math.max(0, oldIndex - removedBeforeCurrent), playQueue.length - 1);
+      else currentIdx = playQueue.indexOf(currentSong);
+      if (currentIdx < 0 && playQueue.length) currentIdx = Math.min(Math.max(0, oldIndex - removedBeforeCurrent), playQueue.length - 1);
+    }
     queueSelection.clear();
-    if (!playQueue.length) currentIdx = -1;
-    else if (removedCurrent) currentIdx = Math.min(Math.max(0, oldIndex), playQueue.length - 1);
-    else currentIdx = playQueue.indexOf(activePlaybackSong);
-    if (currentIdx < 0 && playQueue.length) currentIdx = Math.min(oldIndex, playQueue.length - 1);
     if (removedCurrent) {
       if (wasPlaying && currentIdx >= 0) playQueueAt(currentIdx);
       else stopAudioForQueueChange(playQueue[currentIdx] || null);
     }
-    renderQueuePanelV140({ animate: false });
+    renderQueuePanelV140({ animate: false, preserveWindow: true });
     safeShelfRebuild('queue-remove-selected', true);
     scheduleQueueSessionSave();
     showUndoToast('已移除所选歌曲', function () { restoreQueueRefs(before); });
@@ -900,7 +1018,7 @@
       if (result.nextAction === 'play-current' && currentIdx >= 0) playQueueAt(currentIdx);
       else stopAudioForQueueChange(playQueue[currentIdx] || null);
     }
-    renderQueuePanelV140({ animate: false });
+    renderQueuePanelV140({ animate: false, preserveWindow: true });
     safeShelfRebuild('remove-queue-item');
     scheduleQueueSessionSave();
     showUndoToast('已从队列移除', function () { restoreQueueRefs(before); });
@@ -940,7 +1058,10 @@
         if ((event.ctrlKey || event.metaKey) && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
           event.preventDefault();
           var target = clamp(index + (event.key === 'ArrowUp' ? -1 : 1), 0, playQueue.length - 1);
-          if (moveQueueItemV140(index, target, true)) {
+          var targetWindow = queueCore && queueCore.queueWindowStart
+            ? queueCore.queueWindowStart(playQueue.length, QUEUE_RENDER_BATCH, target)
+            : Math.floor(target / QUEUE_RENDER_BATCH) * QUEUE_RENDER_BATCH;
+          if (moveQueueItemV140(index, target, true, { windowStart: targetWindow })) {
             var nextRow = list.querySelector('[data-queue-index="' + target + '"]');
             if (nextRow) nextRow.focus();
           }
@@ -1232,7 +1353,7 @@
   function updateSettingsVersion() {
     var node = byId('settings-version');
     if (!node) return;
-    var current = updatePreviewState && updatePreviewState.currentVersion || '1.4.0';
+    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.0';
     node.textContent = 'Mineradio v' + current + (updatePreviewState && updatePreviewState.checkStatus === 'available' ? (' · 可更新至 v' + updatePreviewState.version) : '');
   }
   function activateSettingsTab(name, focus) {

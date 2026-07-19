@@ -13,6 +13,8 @@
 <script src="js/core/queue-session.js"></script>
 <script src="js/core/lyrics.js"></script>
 <script src="js/core/network-errors.js"></script>
+<script src="js/core/netease-experience.js"></script>
+<script src="js/core/audio-settings.js"></script>
 <script>
 try {
   document.documentElement.classList.add(localStorage.getItem('mineradio-diy-player-mode-v1') === '1' ? 'diy-mode-preload' : 'simple-mode-preload');
@@ -2723,7 +2725,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">发现新版本</div>
-          <div id="update-modal-version" class="update-version">v1.4.0</div>
+          <div id="update-modal-version" class="update-version">v1.5.0</div>
         </div>
         <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
@@ -3000,8 +3002,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.4.0',
-  version: '1.4.0',
+  currentVersion: '1.5.0',
+  version: '1.5.0',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -28000,5 +28002,8 @@ function animate() {
 animate();
 </script>
 <script src="js/v140.js"></script>
+<script src="js/v150.js"></script>
+<script src="js/v150-audio.js"></script>
+<script src="js/v150-accessibility.js"></script>
 </body>
 </html>

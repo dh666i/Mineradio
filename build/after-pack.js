@@ -26,9 +26,10 @@ function findNewestRceditInCache(cacheRoot) {
 }
 
 function resolveRcedit(projectDir) {
-  var candidates = [
-    path.join(projectDir, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe')
-  ];
+  var localRcedit = path.join(projectDir, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe');
+  if (fs.existsSync(localRcedit)) return localRcedit;
+
+  var candidates = [];
   var localAppData = process.env.LOCALAPPDATA;
   if (localAppData) {
     var cached = findNewestRceditInCache(path.join(localAppData, 'electron-builder', 'Cache', 'winCodeSign'));

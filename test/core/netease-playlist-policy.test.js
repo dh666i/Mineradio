@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   getPlaylistEditRestriction,
+  getPlaylistSubscriptionRestriction,
   normalizeNeteaseId,
 } = require('../../lib/netease-playlist-policy');
 
@@ -25,4 +26,16 @@ test('allows editing only normal playlists created by the current user', () => {
   assert.equal(getPlaylistEditRestriction({ ...playlist, creator: { userId: 8 } }, 7), 'PLAYLIST_NOT_OWNED');
   assert.equal(getPlaylistEditRestriction({ ...playlist, subscribed: true }, 7), 'PLAYLIST_NOT_OWNED');
   assert.equal(getPlaylistEditRestriction({ ...playlist, specialType: 5 }, 7), 'PLAYLIST_SPECIAL_READ_ONLY');
+});
+
+test('allows subscriptions only for public playlists owned by somebody else', () => {
+  const playlist = {
+    id: 42,
+    creator: { userId: 7 },
+    privacy: 0,
+  };
+  assert.equal(getPlaylistSubscriptionRestriction(playlist, 8), '');
+  assert.equal(getPlaylistSubscriptionRestriction(playlist, 7), 'PLAYLIST_OWNED');
+  assert.equal(getPlaylistSubscriptionRestriction({ ...playlist, privacy: 10 }, 8), 'PLAYLIST_NOT_PUBLIC');
+  assert.equal(getPlaylistSubscriptionRestriction({ ...playlist, id: 'bad' }, 8), 'PLAYLIST_NOT_FOUND');
 });
