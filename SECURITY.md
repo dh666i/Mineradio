@@ -4,7 +4,7 @@
 
 当前只维护最新公开版本。
 
-当前受支持的源码和稳定二进制版本均为 `1.3.1`。安装包只通过 `dh666i/Mineradio` Releases 发布。
+当前受支持的源码和稳定二进制版本均为 `1.3.2`。安装包只通过 `dh666i/Mineradio` Releases 发布。
 
 ## Installer Safety Notice
 

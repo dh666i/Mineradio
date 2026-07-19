@@ -78,6 +78,15 @@ const PATCH_MAX_BYTES = 12 * 1024 * 1024;
 const UPDATE_MAX_BYTES = 1024 * 1024 * 1024;
 const UPDATE_METADATA_MAX_BYTES = 1024 * 1024;
 const UPDATE_READ_IDLE_TIMEOUT_MS = 20000;
+const UPDATE_CONNECT_TIMEOUT_MS = 14000;
+const UPDATE_PROBE_RANGE_BYTES = 256 * 1024;
+const UPDATE_PROBE_TOTAL_MAX_BYTES = 2 * 1024 * 1024;
+const UPDATE_PROBE_TIMEOUT_MS = 6500;
+const UPDATE_LOW_SPEED_THRESHOLD_BPS = 128 * 1024;
+const UPDATE_LOW_SPEED_REQUIRED_GAIN = 1.35;
+const UPDATE_LOW_SPEED_GRACE_MS = 6000;
+const UPDATE_LOW_SPEED_DURATION_MS = 10000;
+const UPDATE_SPEED_WINDOW_MS = 5000;
 const PATCH_ALLOWED_ROOTS = new Set(['public', 'desktop', 'build']);
 const PATCH_ALLOWED_FILES = new Set(['server.js', 'dj-analyzer.js', 'package.json', 'package-lock.json']);
 const UPDATE_FALLBACK_NOTES = [
@@ -274,6 +283,7 @@ function sendJSON(res, data, status) {
 }
 const API_POST_ONLY_ROUTES = new Set([
   '/api/update/download',
+  '/api/update/download/switch',
   '/api/update/patch',
   '/api/personal-fm/trash',
   '/api/qq/login/cookie',
@@ -429,15 +439,40 @@ function buildMirrorUrl(originalUrl, mirror) {
   if (base.includes('{url}')) return base.replace(/\{url\}/g, source);
   return base.replace(/\/+$/, '/') + source;
 }
+function configuredMirrorIndexForUrl(value) {
+  const target = String(value || '').trim().toLowerCase();
+  if (!target) return -1;
+  const mirrors = UPDATE_CONFIG.mirrors || [];
+  for (let i = 0; i < mirrors.length; i++) {
+    const raw = String(mirrors[i] || '').trim();
+    const marker = raw.match(/\{(?:encodedUrl|url)\}/i);
+    if (marker) {
+      const markerIndex = marker.index || 0;
+      const prefix = raw.slice(0, markerIndex).toLowerCase();
+      const suffix = raw.slice(markerIndex + marker[0].length).toLowerCase();
+      if (target.startsWith(prefix) && (!suffix || target.endsWith(suffix))) return i;
+      continue;
+    }
+    const prefix = raw.replace(/\/+$/, '/').toLowerCase();
+    if (prefix && target.startsWith(prefix)) return i;
+  }
+  return -1;
+}
 function uniqueDownloadCandidates(urls, opts) {
   opts = opts || {};
-  const directUrls = (Array.isArray(urls) ? urls : [urls])
+  const suppliedUrls = (Array.isArray(urls) ? urls : [urls])
     .map(url => String(url || '').trim())
     .filter(url => /^https?:\/\//i.test(url));
-  const directSet = new Set(directUrls.map(url => url.toLowerCase()));
+  const suppliedSeen = new Set();
+  const uniqueSuppliedUrls = suppliedUrls.filter(url => {
+    const key = url.toLowerCase();
+    if (suppliedSeen.has(key)) return false;
+    suppliedSeen.add(key);
+    return true;
+  });
   const mirrors = opts.useMirrors === false ? [] : (UPDATE_CONFIG.mirrors || []);
   const mirrored = [];
-  directUrls.forEach(source => {
+  uniqueSuppliedUrls.filter(url => configuredMirrorIndexForUrl(url) < 0).forEach(source => {
     mirrors.forEach((mirror, index) => {
       const url = buildMirrorUrl(source, mirror);
       if (url) mirrored.push({
@@ -447,12 +482,15 @@ function uniqueDownloadCandidates(urls, opts) {
       });
     });
   });
-  const direct = directUrls.map(url => ({
-    url,
-    label: directSet.has(url.toLowerCase()) ? 'GitHub 直连' : '下载线路',
-    mirrored: false,
-  }));
-  const ordered = UPDATE_CONFIG.preferMirrors === false ? direct.concat(mirrored) : mirrored.concat(direct);
+  const supplied = uniqueSuppliedUrls.map(url => {
+    const mirrorIndex = configuredMirrorIndexForUrl(url);
+    return {
+      url,
+      label: mirrorIndex >= 0 ? ('国内加速线路 ' + (mirrorIndex + 1)) : (/github\.com/i.test(url) ? 'GitHub 直连' : '下载线路'),
+      mirrored: mirrorIndex >= 0,
+    };
+  });
+  const ordered = UPDATE_CONFIG.preferMirrors === false ? supplied.concat(mirrored) : mirrored.concat(supplied);
   const seen = new Set();
   return ordered.filter(item => {
     const key = item.url.toLowerCase();
@@ -741,6 +779,12 @@ function classifyUpdateError(err) {
   const code = String(err && err.code || '').trim();
   const message = String(err && err.message || err || '').trim();
   const detail = message || code || '未知错误';
+  if (code === 'UPDATE_SOURCE_SWITCH_REQUESTED') {
+    return { code, reason: '已手动跳过当前下载线路。', detail };
+  }
+  if (code === 'UPDATE_LOW_SPEED') {
+    return { code, reason: '当前线路持续低速，已自动切换下载线路。', detail };
+  }
   if (/HASH|DIGEST|CHECKSUM/i.test(code + ' ' + message)) {
     return { code: code || 'UPDATE_HASH_MISMATCH', reason: '文件校验失败，可能是线路缓存异常，已拦截该安装包。', detail };
   }
@@ -1016,6 +1060,9 @@ function publicUpdateJob(job) {
     sourceLabel: job.sourceLabel || '',
     attempt: job.attempt || 0,
     attempts: job.attempts || 0,
+    routing: job.routing || '',
+    probing: job.routing === 'probing',
+    canSwitch: canSwitchUpdateSource(job),
     mode: job.mode || 'installer',
     message: job.message || '',
     restartRequired: !!job.restartRequired,
@@ -1166,6 +1213,7 @@ function reuseVerifiedInstallerJob(opts) {
     speedBps: 0,
     etaSeconds: 0,
     sourceLabel: '本地缓存',
+    routing: 'ready',
     attempt: 0,
     attempts: opts.attempts || 0,
     mode: 'installer',
@@ -1198,6 +1246,9 @@ function reuseVerifiedInstallerJob(opts) {
 function setUpdateJobError(job, err, fallbackMessage) {
   const info = classifyUpdateError(err);
   job.status = 'error';
+  job.routing = 'error';
+  job.activeAbortController = null;
+  job.switchRequested = false;
   job.error = info.code;
   job.errorReason = info.reason;
   job.errorDetail = info.detail;
@@ -1206,9 +1257,12 @@ function setUpdateJobError(job, err, fallbackMessage) {
 }
 function prepareUpdateJobAttempt(job, candidate, index, total) {
   job.status = 'downloading';
+  job.routing = 'downloading';
   job.sourceLabel = candidate.label || '下载线路';
   job.attempt = index + 1;
   job.attempts = total;
+  job.currentCandidateIndex = index;
+  job.switchRequested = false;
   job.received = 0;
   job.speedBps = 0;
   job.etaSeconds = 0;
@@ -1221,25 +1275,176 @@ function ensureMirrorCanBeVerified(job, candidate) {
   if (job.sha256 || job.sha512) return;
   throw updateError('UPDATE_DIGEST_MISSING', 'Installer download requires a trusted digest');
 }
+function canSwitchUpdateSource(job) {
+  return !!(job
+    && job.mode === 'installer'
+    && job.status === 'downloading'
+    && job.routing === 'downloading'
+    && job.activeAbortController
+    && !job.switchRequested
+    && job.attempt > 0
+    && job.attempt < job.attempts);
+}
+function requestUpdateSourceSwitch(job) {
+  if (!job) return { ok: false, error: 'UPDATE_JOB_NOT_FOUND' };
+  if (job.switchRequested && job.routing === 'switching') {
+    return Object.assign(publicUpdateJob(job), { switching: true });
+  }
+  if (!canSwitchUpdateSource(job)) {
+    return { ok: false, error: 'UPDATE_SOURCE_NOT_SWITCHABLE', job: publicUpdateJob(job) };
+  }
+  const controller = job.activeAbortController;
+  job.switchRequested = true;
+  job.routing = 'switching';
+  job.message = '正在切换下载线路';
+  job.updatedAt = Date.now();
+  controller.abort(updateError('UPDATE_SOURCE_SWITCH_REQUESTED', 'Manual source switch requested'));
+  return Object.assign(publicUpdateJob(job), { switching: true });
+}
+async function probeUpdateDownloadCandidate(candidate, expectedSize) {
+  const targetBytes = Math.min(
+    UPDATE_PROBE_RANGE_BYTES,
+    Math.max(1, Number(expectedSize || UPDATE_PROBE_RANGE_BYTES) || UPDATE_PROBE_RANGE_BYTES)
+  );
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  const timer = setTimeout(() => controller.abort(), UPDATE_PROBE_TIMEOUT_MS);
+  let reader = null;
+  let received = 0;
+  try {
+    const resp = await fetch(candidate.url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': `Mineradio/${APP_VERSION}`,
+        'Range': `bytes=0-${targetBytes - 1}`,
+        'Accept-Encoding': 'identity',
+      },
+    });
+    if (!resp.ok) throw updateError('HTTP_' + resp.status, 'HTTP ' + resp.status);
+    if (!resp.body || typeof resp.body.getReader !== 'function') {
+      throw updateError('UPDATE_PROBE_BODY_MISSING', 'Update probe response has no body');
+    }
+    reader = resp.body.getReader();
+    while (received < targetBytes) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      const size = Number(chunk.value && chunk.value.byteLength || 0) || 0;
+      received += Math.min(size, targetBytes - received);
+    }
+    if (received < targetBytes) {
+      throw updateError('UPDATE_PROBE_TRUNCATED', `Update probe returned ${received} of ${targetBytes} bytes`);
+    }
+    const durationMs = Math.max(1, Date.now() - startedAt);
+    return {
+      ok: true,
+      bytes: received,
+      durationMs,
+      speedBps: Math.round(received / (durationMs / 1000)),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      bytes: received,
+      durationMs: Math.max(1, Date.now() - startedAt),
+      error: String(err && (err.code || err.message) || 'UPDATE_PROBE_FAILED'),
+    };
+  } finally {
+    clearTimeout(timer);
+    if (reader) {
+      try { await reader.cancel('probe complete'); } catch (_) {}
+    }
+  }
+}
+function orderUpdateCandidatesByProbe(candidates, results) {
+  const list = Array.isArray(candidates) ? candidates.slice() : [];
+  const validResults = (Array.isArray(results) ? results : [])
+    .filter(result => result && Number.isInteger(result.index) && result.index >= 0 && result.index < list.length);
+  const resultByIndex = new Map(validResults.map(result => [result.index, result]));
+  const decorate = index => {
+    const result = resultByIndex.get(index);
+    return Object.assign({}, list[index], {
+      probeOk: !!(result && result.ok),
+      probeSpeedBps: result && result.ok ? (result.speedBps || 0) : 0,
+    });
+  };
+  const measured = validResults
+    .filter(result => result && result.ok && Number.isInteger(result.index) && result.index >= 0 && result.index < list.length)
+    .slice()
+    .sort((a, b) => (b.speedBps || 0) - (a.speedBps || 0) || a.index - b.index);
+  const selected = new Set(measured.map(result => result.index));
+  return measured.map(result => decorate(result.index))
+    .concat(list.map((_, index) => index).filter(index => !selected.has(index)).map(decorate));
+}
+function hasFasterProbedUpdateCandidate(candidates, currentIndex, currentSpeedBps) {
+  const requiredSpeed = Math.max(1, Number(currentSpeedBps || 0)) * UPDATE_LOW_SPEED_REQUIRED_GAIN;
+  return candidates.slice(currentIndex + 1).some(candidate => (
+    candidate && candidate.probeOk && Number(candidate.probeSpeedBps || 0) >= requiredSpeed
+  ));
+}
+async function rankUpdateDownloadCandidates(job, candidates) {
+  const list = Array.isArray(candidates) ? candidates.slice() : [];
+  if (list.length <= 1) return list;
+  const maxCandidates = Math.max(1, Math.floor(UPDATE_PROBE_TOTAL_MAX_BYTES / UPDATE_PROBE_RANGE_BYTES));
+  const probeTargets = list.slice(0, maxCandidates);
+  job.status = 'downloading';
+  job.routing = 'probing';
+  job.sourceLabel = '自动测速';
+  job.attempt = 0;
+  job.attempts = list.length;
+  job.speedBps = 0;
+  job.etaSeconds = 0;
+  job.message = '正在测速选择最快下载线路';
+  job.updatedAt = Date.now();
+  const results = await Promise.all(probeTargets.map(async (candidate, index) => Object.assign(
+    { index, label: candidate.label || '下载线路' },
+    await probeUpdateDownloadCandidate(candidate, job.expectedSize)
+  )));
+  job.probeResults = results.map(result => ({
+    label: result.label,
+    ok: result.ok,
+    speedBps: result.speedBps || 0,
+    durationMs: result.durationMs || 0,
+    error: result.error || '',
+  }));
+  return orderUpdateCandidatesByProbe(list, results);
+}
 async function downloadUpdateAssetWithMirrors(job) {
   const tmpPath = job.filePath + '.download';
-  const candidates = Array.isArray(job.downloadCandidates) && job.downloadCandidates.length
+  const initialCandidates = Array.isArray(job.downloadCandidates) && job.downloadCandidates.length
     ? job.downloadCandidates
     : uniqueDownloadCandidates(job.downloadUrl || '');
+  const candidates = await rankUpdateDownloadCandidates(job, initialCandidates);
+  job.downloadCandidates = candidates;
+  job.attempts = candidates.length;
   const failures = [];
   fs.mkdirSync(UPDATE_DOWNLOAD_DIR, { recursive: true });
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
+    let controller = null;
     try {
       try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
       ensureMirrorCanBeVerified(job, candidate);
       prepareUpdateJobAttempt(job, candidate, i, candidates.length);
       job.message = job.total ? '正在下载完整安装包' : '正在下载完整安装包，等待服务器返回大小';
 
-      const resp = await fetchWithTimeout(candidate.url, {
-        headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
-      }, 14000);
+      controller = new AbortController();
+      job.activeAbortController = controller;
+      const connectTimer = setTimeout(() => {
+        controller.abort(updateError('UPDATE_CONNECT_TIMEOUT', 'Update connection timed out'));
+      }, UPDATE_CONNECT_TIMEOUT_MS);
+      let resp;
+      try {
+        resp = await fetch(candidate.url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
+        });
+      } finally {
+        clearTimeout(connectTimer);
+      }
       if (!resp.ok) throw updateError('HTTP_' + resp.status, 'HTTP ' + resp.status);
+      if (!resp.body || typeof resp.body.getReader !== 'function') {
+        throw updateError('UPDATE_BODY_MISSING', 'Update response has no body');
+      }
 
       const totalHeader = parseInt(resp.headers.get('content-length') || '0', 10) || 0;
       if (totalHeader > UPDATE_MAX_BYTES) throw updateError('UPDATE_TOO_LARGE', 'Installer exceeds the download limit');
@@ -1249,26 +1454,45 @@ async function downloadUpdateAssetWithMirrors(job) {
       job.total = totalHeader || job.expectedSize || job.total || 0;
       job.progress = 0;
       job.updatedAt = Date.now();
-      let speedWindowAt = Date.now();
-      let speedWindowBytes = 0;
+      const attemptStartedAt = Date.now();
+      let speedUpdateAt = attemptStartedAt;
+      let lowSpeedSince = 0;
+      const speedSamples = [{ at: attemptStartedAt, received: 0 }];
 
       const writer = fs.createWriteStream(tmpPath);
       const reader = resp.body.getReader();
+      let bodyComplete = false;
       try {
         while (true) {
           const chunk = await readUpdateChunk(reader);
-          if (chunk.done) break;
+          if (chunk.done) {
+            bodyComplete = true;
+            break;
+          }
           const buf = Buffer.from(chunk.value);
           job.received += buf.length;
           if (job.received > UPDATE_MAX_BYTES || job.expectedSize > 0 && job.received > job.expectedSize) {
             throw updateError('UPDATE_TOO_LARGE', 'Installer exceeded the expected size');
           }
-          speedWindowBytes += buf.length;
           const now = Date.now();
-          if (now - speedWindowAt >= 900) {
-            job.speedBps = Math.round(speedWindowBytes / Math.max(0.001, (now - speedWindowAt) / 1000));
-            speedWindowAt = now;
-            speedWindowBytes = 0;
+          if (now - speedUpdateAt >= 900) {
+            speedSamples.push({ at: now, received: job.received });
+            const cutoff = now - UPDATE_SPEED_WINDOW_MS;
+            while (speedSamples.length > 2 && speedSamples[1].at <= cutoff) speedSamples.shift();
+            const first = speedSamples[0];
+            job.speedBps = Math.round((job.received - first.received) / Math.max(0.001, (now - first.at) / 1000));
+            speedUpdateAt = now;
+            if (i < candidates.length - 1 && now - attemptStartedAt >= UPDATE_LOW_SPEED_GRACE_MS) {
+              const fasterCandidateAvailable = hasFasterProbedUpdateCandidate(candidates, i, job.speedBps);
+              if (job.speedBps < UPDATE_LOW_SPEED_THRESHOLD_BPS && fasterCandidateAvailable) {
+                if (!lowSpeedSince) lowSpeedSince = now;
+                if (now - lowSpeedSince >= UPDATE_LOW_SPEED_DURATION_MS) {
+                  throw updateError('UPDATE_LOW_SPEED', `A probed download source is at least ${UPDATE_LOW_SPEED_REQUIRED_GAIN}x faster`);
+                }
+              } else {
+                lowSpeedSince = 0;
+              }
+            }
           }
           if (job.total > 0) {
             job.progress = Math.max(1, Math.min(99, Math.round((job.received / job.total) * 100)));
@@ -1281,7 +1505,16 @@ async function downloadUpdateAssetWithMirrors(job) {
           job.updatedAt = Date.now();
           if (!writer.write(buf)) await once(writer, 'drain');
         }
+      } catch (err) {
+        try { await reader.cancel(err && err.message || 'download attempt stopped'); } catch (_) {}
+        throw err;
       } finally {
+        if (bodyComplete) {
+          job.routing = 'verifying';
+          job.message = '正在校验安装包';
+          if (job.activeAbortController === controller) job.activeAbortController = null;
+          job.updatedAt = Date.now();
+        }
         writer.end();
         await once(writer, 'finish').catch(() => {});
       }
@@ -1290,19 +1523,29 @@ async function downloadUpdateAssetWithMirrors(job) {
       if (fs.existsSync(job.filePath)) fs.unlinkSync(job.filePath);
       fs.renameSync(tmpPath, job.filePath);
       job.status = 'ready';
+      job.routing = 'ready';
       job.progress = 100;
       job.etaSeconds = 0;
       job.message = '安装包已下载';
       job.updatedAt = Date.now();
       return;
-    } catch (err) {
+    } catch (attemptError) {
+      const switchedManually = !!job.switchRequested;
+      const err = switchedManually
+        ? updateError('UPDATE_SOURCE_SWITCH_REQUESTED', 'Manual source switch requested')
+        : attemptError;
+      job.switchRequested = false;
       try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
       const info = classifyUpdateError(err);
       failures.push({ source: candidate.label || '下载线路', reason: info.reason, detail: info.detail });
       job.failedAttempts = failures.slice(-6);
-      job.message = i < candidates.length - 1 ? ((candidate.label || '当前线路') + '失败，正在切换线路') : info.reason;
+      job.message = i < candidates.length - 1
+        ? (switchedManually ? '正在切换下载线路' : ((candidate.label || '当前线路') + '不可用，正在切换线路'))
+        : info.reason;
       job.updatedAt = Date.now();
       if (i >= candidates.length - 1) setUpdateJobError(job, err, '下载失败：' + info.reason);
+    } finally {
+      if (job.activeAbortController === controller) job.activeAbortController = null;
     }
   }
 }
@@ -1346,6 +1589,7 @@ function startUpdateDownloadJob(info) {
   const job = {
     id: now.toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     status: 'queued',
+    routing: 'queued',
     progress: 0,
     received: 0,
     total: expectedSize,
@@ -3583,6 +3827,20 @@ const server = http.createServer(async (req, res) => {
       console.error('[UpdateDownload]', err);
       sendJSON(res, { ok: false, error: err.message || 'UPDATE_DOWNLOAD_START_FAILED' }, 500);
     }
+    return;
+  }
+
+  if (pn === '/api/update/download/switch') {
+    const body = await readRequestBody(req);
+    const id = String(body && body.id || '').trim();
+    if (!id) {
+      sendJSON(res, { ok: false, error: 'UPDATE_JOB_ID_REQUIRED' }, 400);
+      return;
+    }
+    const job = updateDownloadJobs.get(id);
+    const result = requestUpdateSourceSwitch(job);
+    const status = result.ok ? 200 : (result.error === 'UPDATE_JOB_NOT_FOUND' ? 404 : 409);
+    sendJSON(res, result, status);
     return;
   }
 
