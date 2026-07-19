@@ -2719,7 +2719,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">New release</div>
-          <div id="update-modal-version" class="update-version">v1.3.0</div>
+          <div id="update-modal-version" class="update-version">v1.3.1</div>
         </div>
       </div>
       <div class="update-hero">
@@ -2931,8 +2931,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.3.0',
-  version: '1.3.0',
+  currentVersion: '1.3.1',
+  version: '1.3.1',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -23452,18 +23452,20 @@ function updateProgressDetailText() {
 }
 function initUpdatePreview() {
   renderUpdatePreviewPanel();
-  setUpdatePreviewVisible(true);
+  setUpdatePreviewVisible(false);
   checkLatestUpdate();
-  setTimeout(startUpdateIconBreathing, 760);
 }
 
 function setUpdatePreviewVisible(visible) {
+  var wasVisible = updatePreviewState.visible;
   updatePreviewState.visible = !!visible;
   var entry = document.getElementById('update-entry');
   if (!entry) return;
+  var ring = entry.querySelector('.update-ring');
   entry.classList.toggle('available', updatePreviewState.visible);
   if (!updatePreviewState.visible && window.gsap) {
     window.gsap.killTweensOf(entry);
+    if (ring) window.gsap.killTweensOf(ring);
     window.gsap.set(entry, { autoAlpha: 0, y: 0, clearProps: 'boxShadow,filter,scale' });
     return;
   }
@@ -23472,6 +23474,11 @@ function setUpdatePreviewVisible(visible) {
       { autoAlpha: 0, y: -6, scale: 0.92, filter: 'blur(6px)' },
       { autoAlpha: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 0.62, delay: 0.18, ease: 'expo.out', overwrite: true }
     );
+    if (!wasVisible) {
+      setTimeout(function(){
+        if (updatePreviewState.visible) startUpdateIconBreathing();
+      }, 760);
+    }
   }
 }
 
@@ -23480,7 +23487,7 @@ async function checkLatestUpdate() {
   updatePreviewState.checkError = '';
   updatePreviewState.hero = '正在检查更新…';
   renderUpdatePreviewPanel();
-  setUpdatePreviewVisible(true);
+  setUpdatePreviewVisible(false);
   try {
     var data = await apiJson('/api/update/latest?t=' + Date.now());
     applyLatestUpdateInfo(data);
@@ -23491,7 +23498,7 @@ async function checkLatestUpdate() {
     updatePreviewState.checkError = (e && e.message) || '网络连接失败';
     updatePreviewState.hero = '检查更新失败，请稍后重试。';
     renderUpdatePreviewPanel();
-    setUpdatePreviewVisible(true);
+    setUpdatePreviewVisible(false);
   }
 }
 
@@ -23517,12 +23524,12 @@ function applyLatestUpdateInfo(data) {
     updatePreviewState.notes = release.notes.slice(0, 4);
   }
   renderUpdatePreviewPanel();
-  setUpdatePreviewVisible(true);
+  setUpdatePreviewVisible(updatePreviewState.updateAvailable && updatePreviewState.checkStatus === 'available');
 }
 
 function startUpdateIconBreathing() {
   var entry = document.getElementById('update-entry');
-  if (!entry || !window.gsap) return;
+  if (!entry || !window.gsap || !updatePreviewState.visible || !entry.classList.contains('available')) return;
   var ring = entry.querySelector('.update-ring');
   window.gsap.killTweensOf(entry, 'y,boxShadow');
   window.gsap.set(entry, { autoAlpha: 1 });

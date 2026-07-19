@@ -4,14 +4,14 @@
 
 - 正式仓库：`https://github.com/dh666i/Mineradio`。
 - `package.json` 中 `build.publish` 与 `mineradio.update` 必须指向 `dh666i/Mineradio`。
-- 当前源码基线为 `1.3.0`；未上传并核验安装包前，不在 README 中声明 `v1.3.0` 可下载。
+- 当前源码基线为 `1.3.1`；未上传并核验安装包前，不在 README 中声明 `v1.3.1` 可下载。
 - 第三方更新镜像默认不优先使用；Release 必须同时提供源码，并保留 GPL 与 NOTICE。
 - 技术 `appId` 使用 `com.dh666i.mineradio`，用户数据目录使用 `%APPDATA%\dh666i\Mineradio`；界面产品名保持 `Mineradio`。
 
-## v1.3.0 发布准备
+## v1.3.1 发布准备
 
-- Tag：`v1.3.0`
-- 标题：`Mineradio v1.3.0`
+- Tag：`v1.3.1`
+- 标题：`Mineradio v1.3.1`
 - 使用同一份持久化自签名证书构建所有后续版本；丢失证书会导致已安装版本拒绝自动打开新安装包。
 - 固定 NSIS `guid` 为 v1.2.0 使用的 `9733721a-009e-52bc-b705-49059cd80258`，修改 `appId` 时不得改变升级身份。
 - Release 不上传快速补丁文件，只上传完整安装包、blockmap、`latest.yml` 和 SHA256 文件。
@@ -20,10 +20,10 @@
 
 发布资产：
 
-- `dist/Mineradio-1.3.0-Setup.exe`
-- `dist/Mineradio-1.3.0-Setup.exe.blockmap`
+- `dist/Mineradio-1.3.1-Setup.exe`
+- `dist/Mineradio-1.3.1-Setup.exe.blockmap`
 - `dist/latest.yml`
-- `dist/Mineradio-1.3.0-SHA256SUMS.txt`
+- `dist/Mineradio-1.3.1-SHA256SUMS.txt`
 
 ## v1.2.0 发布
 
