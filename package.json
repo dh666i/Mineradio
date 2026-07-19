@@ -1,8 +1,8 @@
 {
   "name": "mineradio",
   "productName": "Mineradio",
-  "version": "1.2.0",
-  "description": "Mineradio 社区二开版，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
+  "version": "1.3.0",
+  "description": "Mineradio Windows 桌面音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "dh666i",
   "license": "GPL-3.0-only",
   "repository": {
@@ -17,11 +17,16 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "build:win": "electron-builder --win nsis",
-    "build:win:dir": "electron-builder --win dir"
+    "cert:self-sign": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/generate-self-signed-cert.ps1",
+    "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target nsis",
+    "build:win:dir": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target dir",
+    "build:win:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target nsis",
+    "build:win:unsigned": "electron-builder --win nsis --config.win.signExecutable=false",
+    "build:win:dir:unsigned": "electron-builder --win dir --config.win.signExecutable=false",
+    "verify:win:signatures": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/verify-signatures.ps1 -Target nsis"
   },
   "build": {
-    "appId": "com.mineradio.desktop",
+    "appId": "com.dh666i.mineradio",
     "productName": "Mineradio",
     "directories": {
       "output": "dist",
@@ -49,7 +54,14 @@
     "win": {
       "executableName": "Mineradio",
       "icon": "build/icon.ico",
-      "signAndEditExecutable": false,
+      "signAndEditExecutable": true,
+      "signtoolOptions": {
+        "publisherName": "Mineradio",
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      },
       "target": [
         {
           "target": "nsis",
@@ -60,6 +72,7 @@
       ]
     },
     "nsis": {
+      "guid": "9733721a-009e-52bc-b705-49059cd80258",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
@@ -87,7 +100,7 @@
       "provider": "github",
       "owner": "dh666i",
       "repo": "Mineradio",
-      "preview": true,
+      "preview": false,
       "preferMirrors": false,
       "mirrors": [
         "https://gh.llkk.cc/",

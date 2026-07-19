@@ -26,6 +26,13 @@ backups/
 .env
 .env.*
 
+# Local code-signing material
+.cert/
+*.pfx
+*.p12
+*.pvk
+*.key
+
 # Local development noise
 .DS_Store
 Thumbs.db

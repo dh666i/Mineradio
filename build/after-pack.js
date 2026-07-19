@@ -46,18 +46,21 @@ module.exports = async function afterPack(context) {
   const appName = context.packager.appInfo.productFilename || 'Mineradio';
   const exePath = path.join(context.appOutDir, `${appName}.exe`);
   const iconPath = path.join(context.packager.info.buildResourcesDir, 'icon.ico');
+  const manifestPath = path.join(context.packager.info.buildResourcesDir, 'mineradio.exe.manifest');
   const rceditPath = resolveRcedit(context.packager.projectDir);
 
   if (!fs.existsSync(exePath)) throw new Error(`Mineradio executable was not found: ${exePath}`);
   if (!fs.existsSync(iconPath)) throw new Error(`Mineradio icon was not found: ${iconPath}`);
+  if (!fs.existsSync(manifestPath)) throw new Error(`Mineradio application manifest was not found: ${manifestPath}`);
 
   const version = context.packager.appInfo.version;
   console.log(`  • injecting Mineradio resources  rcedit=${rceditPath}`);
   execFileSync(rceditPath, [
     exePath,
     '--set-icon', iconPath,
-    '--set-version-string', 'FileDescription', 'Mineradio Community Edition',
-    '--set-version-string', 'ProductName', 'Mineradio Community Edition',
+    '--application-manifest', manifestPath,
+    '--set-version-string', 'FileDescription', 'Mineradio',
+    '--set-version-string', 'ProductName', 'Mineradio',
     '--set-version-string', 'CompanyName', 'dh666i',
     '--set-version-string', 'OriginalFilename', `${appName}.exe`,
     '--set-file-version', version,

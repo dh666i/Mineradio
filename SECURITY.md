@@ -4,13 +4,13 @@
 
 当前只维护最新公开版本。
 
-当前受支持的源码与二进制版本为 `1.2.0`。安装包只通过 `dh666i/Mineradio` Releases 发布。
+当前受支持的源码和稳定二进制版本均为 `1.3.0`。安装包只通过 `dh666i/Mineradio` Releases 发布。
 
 ## Installer Safety Notice
 
 `v1.0.10` 及更早旧安装包不再建议继续安装或传播。请将旧 `.exe` 安装包视为不可信历史产物并隔离保留。
 
-上游安装包与本二开源码不是同一发行物。二开安装包发布后，只应从 `dh666i/Mineradio` Releases 下载并核对摘要。
+只应从 `dh666i/Mineradio` Releases 下载安装包并核对摘要。自 `1.3.0` 起还应确认安装包与当前程序使用同一 Authenticode 签名证书。
 
 ## Reporting a Vulnerability
 

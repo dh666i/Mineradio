@@ -1,10 +1,13 @@
-const { app, BrowserWindow, ipcMain, shell, screen, session, globalShortcut, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, screen, session, globalShortcut, dialog, nativeImage, Tray, Menu } = require('electron');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { execFile, spawn } = require('child_process');
 
 let mainWindow = null;
+let tray = null;
+let isAppQuitting = false;
 let localServer = null;
 let mainServerPort = 0;
 let desktopLyricsWindow = null;
@@ -23,19 +26,168 @@ let htmlFullscreenActive = false;
 let windowFullscreenActive = false;
 let mainWindowStateTimer = null;
 const registeredGlobalHotkeys = new Map();
+let systemMediaState = {
+  hasTrack: false,
+  playing: false,
+  canPrevious: false,
+  canNext: false,
+  title: '',
+  artist: '',
+};
+const taskbarMediaIcons = new Map();
+const diagnosticEvents = [];
+const adaptiveLoginWindows = new Map();
+let legacyUserDataPath = '';
+const PROTECTED_CREDENTIAL_PREFIX = 'mineradio-safe-storage-v1:';
+
+function redactDiagnosticText(value) {
+  return String(value == null ? '' : value)
+    .replace(/\b(MUSIC_U|MUSIC_A|__csrf|qm_keyst|qqmusic_key|p_skey|skey|token|cookie)\s*[=:]\s*[^\s;,&]+/gi, '$1=[redacted]')
+    .replace(/([?&](?:token|key|cookie|auth|code)=)[^&\s]+/gi, '$1[redacted]')
+    .replace(/[A-Za-z]:\\[^\r\n"']+/g, '[local-path]')
+    .slice(0, 1200);
+}
+
+function recordDiagnosticEvent(level, args) {
+  const message = Array.from(args || []).map((item) => {
+    if (item instanceof Error) return item.stack || item.message;
+    if (typeof item === 'string') return item;
+    try { return JSON.stringify(item); } catch (_) { return String(item); }
+  }).join(' ');
+  diagnosticEvents.push({ at: new Date().toISOString(), level, message: redactDiagnosticText(message) });
+  if (diagnosticEvents.length > 160) diagnosticEvents.splice(0, diagnosticEvents.length - 160);
+}
+
+['warn', 'error'].forEach((level) => {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    recordDiagnosticEvent(level, args);
+    original(...args.map((item) => {
+      if (item instanceof Error) return redactDiagnosticText(item.stack || item.message);
+      if (typeof item === 'string') return redactDiagnosticText(item);
+      try { return redactDiagnosticText(JSON.stringify(item)); } catch (_) { return redactDiagnosticText(item); }
+    }));
+  };
+});
 
 const WINDOWED_ASPECT = 16 / 9;
 const WINDOWED_SCALE = 3 / 4;
 const WINDOWED_MARGIN = 32;
-const MIN_WINDOWED_WIDTH = 960;
-const MIN_WINDOWED_HEIGHT = 540;
+const MIN_WINDOWED_WIDTH = 720;
+const MIN_WINDOWED_HEIGHT = 405;
+const MIN_COMPACT_WIDTH = 480;
+const MIN_COMPACT_HEIGHT = 270;
 const APP_NAME = 'Mineradio';
-const APP_USER_MODEL_ID = 'com.mineradio.desktop';
+const APP_USER_MODEL_ID = 'com.dh666i.mineradio';
 const APP_ICON_ICO = path.join(__dirname, '..', 'build', 'icon.ico');
 const NETEASE_LOGIN_PARTITION = 'persist:mineradio-netease-login';
 const NETEASE_LOGIN_URL = 'https://music.163.com/#/login';
 const QQ_LOGIN_PARTITION = 'persist:mineradio-qqmusic-login';
 const QQ_LOGIN_URL = 'https://y.qq.com/n/ryqq/profile';
+
+function configureIndependentUserDataPath() {
+  const overridePath = String(process.env.MINERADIO_USER_DATA_DIR || '').trim();
+  if (overridePath) {
+    app.setPath('userData', path.resolve(overridePath));
+    return;
+  }
+  const legacyPath = app.getPath('userData');
+  legacyUserDataPath = legacyPath;
+  const targetPath = path.join(app.getPath('appData'), 'dh666i', APP_NAME);
+  if (path.resolve(legacyPath).toLowerCase() === path.resolve(targetPath).toLowerCase()) return;
+  const markerPath = path.join(targetPath, '.mineradio-user-data');
+  try {
+    if (fs.existsSync(legacyPath) && !fs.existsSync(markerPath)) {
+      fs.mkdirSync(targetPath, { recursive: true });
+      const skippedNames = new Set([
+        'cache', 'code cache', 'gpucache', 'dawncache', 'crashpad', 'crashes',
+        'logs', 'updates', 'temp', 'singletoncookie', 'singletonlock', 'singletonsocket',
+        '.cookie', '.qq-cookie',
+      ]);
+      fs.cpSync(legacyPath, targetPath, {
+        recursive: true,
+        force: false,
+        errorOnExist: false,
+        filter: (source) => !skippedNames.has(path.basename(source).toLowerCase()),
+      });
+      fs.writeFileSync(markerPath, `Migrated from the legacy Mineradio profile on ${new Date().toISOString()}\n`, 'utf8');
+    } else if (!fs.existsSync(targetPath)) {
+      fs.mkdirSync(targetPath, { recursive: true });
+      fs.writeFileSync(markerPath, `Created ${new Date().toISOString()}\n`, 'utf8');
+    }
+    app.setPath('userData', targetPath);
+  } catch (e) {
+    console.warn('User data migration deferred:', e.message);
+  }
+}
+
+function sameResolvedPath(left, right) {
+  try { return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase(); }
+  catch (_) { return false; }
+}
+
+function stageLegacyCredentialFiles(cookieTarget, qqCookieTarget) {
+  const candidates = [];
+  if (legacyUserDataPath) {
+    candidates.push({ source: path.join(legacyUserDataPath, '.cookie'), target: cookieTarget });
+    candidates.push({ source: path.join(legacyUserDataPath, '.qq-cookie'), target: qqCookieTarget });
+  }
+  candidates.push({ source: path.join(__dirname, '..', '.cookie'), target: cookieTarget });
+  candidates.push({ source: path.join(__dirname, '..', '.qq-cookie'), target: qqCookieTarget });
+
+  const seen = new Set();
+  const staged = [];
+  for (const candidate of candidates) {
+    const key = path.resolve(candidate.source).toLowerCase();
+    if (seen.has(key) || sameResolvedPath(candidate.source, candidate.target) || !fs.existsSync(candidate.source)) continue;
+    seen.add(key);
+    try {
+      if (!fs.existsSync(candidate.target)) {
+        fs.mkdirSync(path.dirname(candidate.target), { recursive: true });
+        fs.copyFileSync(candidate.source, candidate.target);
+      }
+      staged.push(candidate);
+    } catch (e) {
+      console.warn('Legacy credential staging skipped:', e.message);
+    }
+  }
+  return staged;
+}
+
+function protectedCredentialFileReady(filePath) {
+  try {
+    return fs.existsSync(filePath) && fs.readFileSync(filePath, 'utf8').startsWith(PROTECTED_CREDENTIAL_PREFIX);
+  } catch (_) {
+    return false;
+  }
+}
+
+function scrubLegacyCredentialFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const stat = fs.statSync(filePath);
+    if (stat.isFile() && stat.size > 0 && stat.size <= 1024 * 1024) {
+      const handle = fs.openSync(filePath, 'r+');
+      try {
+        fs.writeSync(handle, Buffer.alloc(stat.size), 0, stat.size, 0);
+        fs.fsyncSync(handle);
+      } finally {
+        fs.closeSync(handle);
+      }
+    }
+    fs.unlinkSync(filePath);
+  } catch (e) {
+    console.warn('Legacy credential cleanup skipped:', e.message);
+  }
+}
+
+function finalizeLegacyCredentialMigration(staged) {
+  for (const candidate of staged || []) {
+    let sourceEmpty = false;
+    try { sourceEmpty = fs.existsSync(candidate.source) && fs.statSync(candidate.source).size === 0; } catch (_) {}
+    if (sourceEmpty || protectedCredentialFileReady(candidate.target)) scrubLegacyCredentialFile(candidate.source);
+  }
+}
 
 const CHROMIUM_PERFORMANCE_SWITCHES = [
   ['autoplay-policy', 'no-user-gesture-required'],
@@ -54,6 +206,9 @@ for (const [name, value] of CHROMIUM_PERFORMANCE_SWITCHES) {
   if (value == null) app.commandLine.appendSwitch(name);
   else app.commandLine.appendSwitch(name, value);
 }
+app.setName(APP_NAME);
+configureIndependentUserDataPath();
+if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 const QQ_LOGIN_COOKIE_PRIORITY = [
@@ -133,6 +288,143 @@ function sendGlobalHotkeyAction(action) {
   mainWindow.webContents.send('mineradio-global-hotkey', { action });
 }
 
+function createTaskbarMediaIcon(kind) {
+  if (taskbarMediaIcons.has(kind)) return taskbarMediaIcons.get(kind);
+  const size = 16;
+  const bitmap = Buffer.alloc(size * size * 4);
+  const setPixel = (x, y, alpha = 235) => {
+    if (x < 0 || y < 0 || x >= size || y >= size) return;
+    const offset = (y * size + x) * 4;
+    bitmap[offset] = 255;
+    bitmap[offset + 1] = 255;
+    bitmap[offset + 2] = 255;
+    bitmap[offset + 3] = alpha;
+  };
+  const fillRect = (left, top, right, bottom) => {
+    for (let y = top; y <= bottom; y++) {
+      for (let x = left; x <= right; x++) setPixel(x, y);
+    }
+  };
+  const fillTriangle = (direction) => {
+    for (let y = 3; y <= 12; y++) {
+      const distance = Math.abs(7.5 - y);
+      const width = Math.max(1, Math.floor(5 - distance));
+      if (direction === 'right') {
+        for (let x = 5; x <= 5 + width; x++) setPixel(x, y);
+      } else {
+        for (let x = 10 - width; x <= 10; x++) setPixel(x, y);
+      }
+    }
+  };
+
+  if (kind === 'pause') {
+    fillRect(4, 3, 6, 12);
+    fillRect(9, 3, 11, 12);
+  } else if (kind === 'previous') {
+    fillRect(3, 3, 4, 12);
+    fillTriangle('left');
+  } else if (kind === 'next') {
+    fillTriangle('right');
+    fillRect(11, 3, 12, 12);
+  } else {
+    fillTriangle('right');
+  }
+
+  const image = nativeImage.createFromBitmap(bitmap, { width: size, height: size, scaleFactor: 1 });
+  taskbarMediaIcons.set(kind, image);
+  return image;
+}
+
+function updateTaskbarMediaButtons() {
+  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return;
+  const state = systemMediaState;
+  const trackFlags = state.hasTrack ? ['enabled'] : ['disabled'];
+  const previousFlags = state.hasTrack && state.canPrevious ? ['enabled'] : ['disabled'];
+  const nextFlags = state.hasTrack && state.canNext ? ['enabled'] : ['disabled'];
+  mainWindow.setThumbarButtons([
+    {
+      tooltip: '上一首',
+      icon: createTaskbarMediaIcon('previous'),
+      flags: previousFlags,
+      click: () => sendGlobalHotkeyAction('prevTrack'),
+    },
+    {
+      tooltip: state.playing ? '暂停' : '播放',
+      icon: createTaskbarMediaIcon(state.playing ? 'pause' : 'play'),
+      flags: trackFlags,
+      click: () => sendGlobalHotkeyAction('togglePlay'),
+    },
+    {
+      tooltip: '下一首',
+      icon: createTaskbarMediaIcon('next'),
+      flags: nextFlags,
+      click: () => sendGlobalHotkeyAction('nextTrack'),
+    },
+  ]);
+}
+
+function trayTooltipText() {
+  if (!systemMediaState.hasTrack) return APP_NAME;
+  const detail = [systemMediaState.title, systemMediaState.artist].filter(Boolean).join(' - ');
+  return (detail ? `${APP_NAME}: ${detail}` : APP_NAME).slice(0, 120);
+}
+
+function updateTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setToolTip(trayTooltipText());
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示 Mineradio', click: () => focusMainWindow() },
+    { type: 'separator' },
+    {
+      label: systemMediaState.playing ? '暂停' : '播放',
+      enabled: !!systemMediaState.hasTrack,
+      click: () => sendGlobalHotkeyAction('togglePlay'),
+    },
+    {
+      label: '上一首',
+      enabled: !!(systemMediaState.hasTrack && systemMediaState.canPrevious),
+      click: () => sendGlobalHotkeyAction('prevTrack'),
+    },
+    {
+      label: '下一首',
+      enabled: !!(systemMediaState.hasTrack && systemMediaState.canNext),
+      click: () => sendGlobalHotkeyAction('nextTrack'),
+    },
+    { type: 'separator' },
+    {
+      label: '退出 Mineradio',
+      click: () => {
+        isAppQuitting = true;
+        app.quit();
+      },
+    },
+  ]));
+}
+
+function createTray() {
+  if (tray && !tray.isDestroyed()) return tray;
+  tray = new Tray(APP_ICON_ICO);
+  tray.on('click', () => focusMainWindow());
+  tray.on('double-click', () => focusMainWindow());
+  updateTrayMenu();
+  return tray;
+}
+
+function showTrayNoticeOnce() {
+  if (!tray || tray.isDestroyed()) return;
+  const markerPath = path.join(app.getPath('userData'), '.tray-close-notice-shown');
+  if (fs.existsSync(markerPath)) return;
+  try {
+    tray.displayBalloon({
+      iconType: 'info',
+      title: 'Mineradio 仍在运行',
+      content: '音乐会继续播放，可从系统托盘重新打开或退出。',
+      noSound: true,
+    });
+  } catch (_) {}
+  try { fs.writeFileSync(markerPath, new Date().toISOString(), 'utf8'); } catch (_) {}
+}
+
 function unregisterMineradioGlobalHotkeys() {
   for (const accelerator of registeredGlobalHotkeys.keys()) {
     try { globalShortcut.unregister(accelerator); } catch (e) {}
@@ -199,6 +491,7 @@ function getDisplayState(win) {
     ? screen.getDisplayMatching(win.getBounds())
     : primary;
   const bounds = display && display.bounds ? display.bounds : primary.bounds;
+  const workArea = display && display.workArea ? display.workArea : primary.workArea;
   const displayId = display && display.id;
   const primaryId = primary && primary.id;
   const edgeTolerance = 2;
@@ -224,6 +517,13 @@ function getDisplayState(win) {
       width: bounds.width,
       height: bounds.height,
     } : null,
+    displayWorkArea: workArea ? {
+      x: workArea.x,
+      y: workArea.y,
+      width: workArea.width,
+      height: workArea.height,
+    } : null,
+    displayScaleFactor: Number(display && display.scaleFactor) || 1,
   };
 }
 
@@ -241,6 +541,8 @@ function getWindowState(win) {
     hasDisplayOnLeft: false,
     hasDisplayOnRight: false,
     displayBounds: null,
+    displayWorkArea: null,
+    displayScaleFactor: 1,
   };
   return {
     isMaximized: win.isMaximized(),
@@ -259,6 +561,73 @@ function getSenderWindow(event) {
   return BrowserWindow.fromWebContents(event.sender);
 }
 
+function displayForWindow(win) {
+  if (win && !win.isDestroyed()) return screen.getDisplayMatching(win.getBounds());
+  return screen.getPrimaryDisplay();
+}
+
+function adaptiveWindowBounds(owner, preferredWidth, preferredHeight, designMinWidth, designMinHeight) {
+  const display = displayForWindow(owner);
+  const area = display.workArea;
+  const margin = Math.min(24, Math.max(8, Math.floor(Math.min(area.width, area.height) * 0.025)));
+  const availableWidth = Math.max(320, area.width - margin * 2);
+  const availableHeight = Math.max(240, area.height - margin * 2);
+  const width = Math.min(Math.max(MIN_COMPACT_WIDTH, preferredWidth), availableWidth);
+  const height = Math.min(Math.max(MIN_COMPACT_HEIGHT, preferredHeight), availableHeight);
+  return {
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
+    width: Math.round(width),
+    height: Math.round(height),
+    minWidth: Math.round(Math.min(designMinWidth, availableWidth, width)),
+    minHeight: Math.round(Math.min(designMinHeight, availableHeight, height)),
+  };
+}
+
+function applyAdaptiveWindowConstraints(win, options = {}) {
+  if (!win || win.isDestroyed()) return;
+  const display = displayForWindow(win);
+  const area = display.workArea;
+  const margin = Number.isFinite(options.margin) ? options.margin : 12;
+  const minWidth = Math.max(
+    Math.min(MIN_COMPACT_WIDTH, Math.max(320, area.width - margin * 2)),
+    Math.min(options.minWidth || MIN_WINDOWED_WIDTH, Math.max(320, area.width - margin * 2)),
+  );
+  const minHeight = Math.max(
+    Math.min(MIN_COMPACT_HEIGHT, Math.max(240, area.height - margin * 2)),
+    Math.min(options.minHeight || MIN_WINDOWED_HEIGHT, Math.max(240, area.height - margin * 2)),
+  );
+  win.setMinimumSize(Math.round(minWidth), Math.round(minHeight));
+  if (win.isMaximized() || win.isFullScreen()) return;
+
+  const bounds = win.getBounds();
+  const width = Math.min(Math.max(bounds.width, minWidth), area.width);
+  const height = Math.min(Math.max(bounds.height, minHeight), area.height);
+  const maxX = area.x + area.width - width;
+  const maxY = area.y + area.height - height;
+  const x = Math.min(Math.max(bounds.x, area.x), maxX);
+  const y = Math.min(Math.max(bounds.y, area.y), maxY);
+  if (x !== bounds.x || y !== bounds.y || width !== bounds.width || height !== bounds.height) {
+    win.setBounds({ x, y, width, height }, false);
+  }
+}
+
+function registerAdaptiveLoginWindow(win, options) {
+  if (!win || win.isDestroyed()) return;
+  adaptiveLoginWindows.set(win.id, { win, options: { ...options } });
+  const apply = () => applyAdaptiveWindowConstraints(win, options);
+  win.on('move', apply);
+  win.on('resize', apply);
+  win.once('closed', () => adaptiveLoginWindows.delete(win.id));
+  apply();
+}
+
+function refreshAdaptiveLoginWindows() {
+  for (const entry of adaptiveLoginWindows.values()) {
+    applyAdaptiveWindowConstraints(entry.win, entry.options);
+  }
+}
+
 function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -270,6 +639,158 @@ function focusMainWindow() {
 
 function getUpdateDownloadDir() {
   return path.join(app.getPath('userData'), 'updates');
+}
+
+function getSettingsBackupDir() {
+  return path.join(app.getPath('userData'), 'backups', 'settings');
+}
+
+function sanitizeSettingsEntries(entries) {
+  const source = entries && typeof entries === 'object' ? entries : {};
+  const output = {};
+  let totalBytes = 0;
+  Object.keys(source).sort().forEach((key) => {
+    if (!/^(mineradio-|apex-)/i.test(key) || /cookie|token|secret|password|auth/i.test(key)) return;
+    const value = String(source[key] == null ? '' : source[key]);
+    const size = Buffer.byteLength(value, 'utf8');
+    if (size > 512 * 1024 || totalBytes + size > 4 * 1024 * 1024) return;
+    output[key.slice(0, 180)] = value;
+    totalBytes += size;
+  });
+  return output;
+}
+
+function rotateSettingsBackups() {
+  const dir = getSettingsBackupDir();
+  if (!fs.existsSync(dir)) return;
+  const files = fs.readdirSync(dir)
+    .filter((name) => /^settings-.*\.json$/i.test(name))
+    .map((name) => ({ name, path: path.join(dir, name), mtimeMs: fs.statSync(path.join(dir, name)).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  files.slice(6).forEach((item) => {
+    try { fs.unlinkSync(item.path); } catch (_) {}
+  });
+}
+
+function createSettingsBackup(payload = {}) {
+  const entries = sanitizeSettingsEntries(payload.entries);
+  if (!Object.keys(entries).length) return { ok: true, skipped: true, reason: 'SETTINGS_BACKUP_EMPTY' };
+  const dir = getSettingsBackupDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const reason = String(payload.reason || 'manual').replace(/[^a-z0-9_-]+/gi, '-').slice(0, 36) || 'manual';
+  const filePath = path.join(dir, `settings-${stamp}-${reason}.json`);
+  const document = {
+    schema: 1,
+    createdAt: new Date().toISOString(),
+    appVersion: app.getVersion(),
+    reason,
+    fromSchema: Number(payload.fromSchema || 0) || 0,
+    toSchema: Number(payload.toSchema || 0) || 0,
+    entries,
+  };
+  const tmp = `${filePath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(document, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tmp, filePath);
+  rotateSettingsBackups();
+  return { ok: true, createdAt: document.createdAt, entryCount: Object.keys(entries).length };
+}
+
+function readLatestSettingsBackup() {
+  const dir = getSettingsBackupDir();
+  if (!fs.existsSync(dir)) return { ok: false, error: 'SETTINGS_BACKUP_MISSING' };
+  const latest = fs.readdirSync(dir)
+    .filter((name) => /^settings-.*\.json$/i.test(name))
+    .map((name) => ({ path: path.join(dir, name), mtimeMs: fs.statSync(path.join(dir, name)).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+  if (!latest) return { ok: false, error: 'SETTINGS_BACKUP_MISSING' };
+  const document = JSON.parse(fs.readFileSync(latest.path, 'utf8'));
+  return {
+    ok: true,
+    createdAt: document.createdAt || '',
+    appVersion: document.appVersion || '',
+    entries: sanitizeSettingsEntries(document.entries),
+  };
+}
+
+function scrubDiagnosticValue(value, depth = 0) {
+  if (depth > 5) return '[truncated]';
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') return redactDiagnosticText(value);
+  if (Array.isArray(value)) return value.slice(0, 80).map((item) => scrubDiagnosticValue(item, depth + 1));
+  if (typeof value === 'object') {
+    const output = {};
+    Object.keys(value).slice(0, 120).forEach((key) => {
+      output[key] = /cookie|token|secret|password|authorization/i.test(key)
+        ? '[redacted]'
+        : scrubDiagnosticValue(value[key], depth + 1);
+    });
+    return output;
+  }
+  return redactDiagnosticText(value);
+}
+
+function inspectAuthenticodeSignatures(currentExecutable, installerPath) {
+  if (process.platform !== 'win32') return Promise.resolve({ ok: true, skipped: true });
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    '$current = Get-AuthenticodeSignature -LiteralPath $env:MINERADIO_CURRENT_EXE',
+    '$target = Get-AuthenticodeSignature -LiteralPath $env:MINERADIO_TARGET_EXE',
+    '[PSCustomObject]@{',
+    '  currentThumbprint = if ($current.SignerCertificate) { $current.SignerCertificate.Thumbprint } else { "" }',
+    '  targetThumbprint = if ($target.SignerCertificate) { $target.SignerCertificate.Thumbprint } else { "" }',
+    '  currentSubject = if ($current.SignerCertificate) { $current.SignerCertificate.Subject } else { "" }',
+    '  targetSubject = if ($target.SignerCertificate) { $target.SignerCertificate.Subject } else { "" }',
+    '  currentStatus = [string]$current.Status',
+    '  targetStatus = [string]$target.Status',
+    '  currentStatusMessage = [string]$current.StatusMessage',
+    '  targetStatusMessage = [string]$target.StatusMessage',
+    '  targetTimestampThumbprint = if ($target.TimeStamperCertificate) { $target.TimeStamperCertificate.Thumbprint } else { "" }',
+    '} | ConvertTo-Json -Compress',
+  ].join('\n');
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      windowsHide: true,
+      timeout: 12000,
+      env: {
+        ...process.env,
+        MINERADIO_CURRENT_EXE: currentExecutable,
+        MINERADIO_TARGET_EXE: installerPath,
+      },
+    }, (error, stdout) => {
+      if (error) {
+        reject(new Error('UPDATE_SIGNATURE_CHECK_FAILED'));
+        return;
+      }
+      try {
+        resolve(JSON.parse(String(stdout || '').trim()));
+      } catch (_) {
+        reject(new Error('UPDATE_SIGNATURE_RESULT_INVALID'));
+      }
+    });
+  });
+}
+
+async function verifyUpdateInstallerSignature(installerPath) {
+  if (process.platform !== 'win32') return { ok: true, skipped: true };
+  const result = await inspectAuthenticodeSignatures(process.execPath, installerPath);
+  const currentThumbprint = String(result.currentThumbprint || '').replace(/\s+/g, '').toUpperCase();
+  const targetThumbprint = String(result.targetThumbprint || '').replace(/\s+/g, '').toUpperCase();
+  const currentStatus = String(result.currentStatus || '');
+  const targetStatus = String(result.targetStatus || '');
+  const allowedStatuses = new Set(['Valid', 'UnknownError']);
+  if (!currentThumbprint) return { ok: false, error: 'CURRENT_APP_SIGNATURE_MISSING' };
+  if (!targetThumbprint) return { ok: false, error: 'UPDATE_SIGNATURE_MISSING' };
+  if (!allowedStatuses.has(currentStatus)) return { ok: false, error: 'CURRENT_APP_SIGNATURE_INVALID', status: currentStatus };
+  if (!allowedStatuses.has(targetStatus)) return { ok: false, error: 'UPDATE_SIGNATURE_INVALID', status: targetStatus };
+  if (currentThumbprint !== targetThumbprint) return { ok: false, error: 'UPDATE_SIGNER_MISMATCH' };
+  if (!String(result.targetTimestampThumbprint || '').trim()) return { ok: false, error: 'UPDATE_SIGNATURE_TIMESTAMP_MISSING' };
+  return {
+    ok: true,
+    thumbprint: targetThumbprint,
+    subject: String(result.targetSubject || ''),
+    status: targetStatus,
+  };
 }
 
 function shouldEnsureDesktopShortcut() {
@@ -405,12 +926,15 @@ async function openNeteaseMusicLoginWindow(owner) {
   return new Promise((resolve) => {
     let settled = false;
     let pollTimer = null;
+    const loginBounds = adaptiveWindowBounds(owner, 940, 760, 720, 500);
 
     const loginWindow = new BrowserWindow({
-      width: 940,
-      height: 760,
-      minWidth: 780,
-      minHeight: 580,
+      x: loginBounds.x,
+      y: loginBounds.y,
+      width: loginBounds.width,
+      height: loginBounds.height,
+      minWidth: loginBounds.minWidth,
+      minHeight: loginBounds.minHeight,
       parent: owner && !owner.isDestroyed() ? owner : undefined,
       modal: false,
       show: false,
@@ -425,6 +949,7 @@ async function openNeteaseMusicLoginWindow(owner) {
         sandbox: true,
       },
     });
+    registerAdaptiveLoginWindow(loginWindow, { minWidth: 720, minHeight: 500, margin: 12 });
 
     const finish = async (result) => {
       if (settled) return;
@@ -507,12 +1032,15 @@ async function openQQMusicLoginWindow(owner) {
     let settled = false;
     let pollTimer = null;
     let warmupStarted = false;
+    const loginBounds = adaptiveWindowBounds(owner, 900, 720, 700, 480);
 
     const loginWindow = new BrowserWindow({
-      width: 900,
-      height: 720,
-      minWidth: 760,
-      minHeight: 560,
+      x: loginBounds.x,
+      y: loginBounds.y,
+      width: loginBounds.width,
+      height: loginBounds.height,
+      minWidth: loginBounds.minWidth,
+      minHeight: loginBounds.minHeight,
       parent: owner && !owner.isDestroyed() ? owner : undefined,
       modal: false,
       show: false,
@@ -527,6 +1055,7 @@ async function openQQMusicLoginWindow(owner) {
         sandbox: true,
       },
     });
+    registerAdaptiveLoginWindow(loginWindow, { minWidth: 700, minHeight: 480, margin: 12 });
 
     const finish = async (result) => {
       if (settled) return;
@@ -616,6 +1145,31 @@ async function clearNeteaseMusicLoginSession() {
   return { ok: true };
 }
 
+function getAdaptiveMainMinimumSize(win) {
+  const display = displayForWindow(win);
+  const area = display.workArea;
+  const availableWidth = Math.max(320, area.width - 16);
+  const availableHeight = Math.max(240, area.height - 16);
+  const width = Math.max(
+    Math.min(MIN_COMPACT_WIDTH, availableWidth),
+    Math.min(MIN_WINDOWED_WIDTH, availableWidth, Math.floor(availableHeight * WINDOWED_ASPECT)),
+  );
+  const height = Math.max(
+    Math.min(MIN_COMPACT_HEIGHT, availableHeight),
+    Math.min(MIN_WINDOWED_HEIGHT, availableHeight, Math.floor(width / WINDOWED_ASPECT)),
+  );
+  return { width: Math.round(width), height: Math.round(height) };
+}
+
+function applyAdaptiveMainWindowConstraints(win) {
+  const minimum = getAdaptiveMainMinimumSize(win);
+  applyAdaptiveWindowConstraints(win, {
+    minWidth: minimum.width,
+    minHeight: minimum.height,
+    margin: 8,
+  });
+}
+
 function getWindowedBounds(win) {
   const display = win && !win.isDestroyed()
     ? screen.getDisplayMatching(win.getBounds())
@@ -662,8 +1216,10 @@ function getWindowedBounds(win) {
 function applyWindowedBounds(win) {
   if (!win || win.isDestroyed()) return;
   if (win.isMaximized()) win.unmaximize();
-  win.setMinimumSize(MIN_WINDOWED_WIDTH, MIN_WINDOWED_HEIGHT);
+  const minimum = getAdaptiveMainMinimumSize(win);
+  win.setMinimumSize(minimum.width, minimum.height);
   win.setBounds(getWindowedBounds(win), false);
+  applyAdaptiveMainWindowConstraints(win);
   sendWindowState(win);
 }
 
@@ -1125,6 +1681,99 @@ ipcMain.handle('mineradio-hotkeys-configure-global', (_event, bindings) => {
   return configureMineradioGlobalHotkeys(bindings);
 });
 
+ipcMain.handle('mineradio-system-media-update', (_event, payload = {}) => {
+  systemMediaState = {
+    hasTrack: !!payload.hasTrack,
+    playing: !!payload.playing,
+    canPrevious: !!payload.canPrevious,
+    canNext: !!payload.canNext,
+    title: String(payload.title || '').slice(0, 240),
+    artist: String(payload.artist || '').slice(0, 240),
+  };
+  updateTaskbarMediaButtons();
+  updateTrayMenu();
+  return { ok: true };
+});
+
+ipcMain.handle('mineradio-settings-backup', (_event, payload = {}) => {
+  try {
+    return createSettingsBackup(payload);
+  } catch (e) {
+    return { ok: false, error: e.message || 'SETTINGS_BACKUP_FAILED' };
+  }
+});
+
+ipcMain.handle('mineradio-settings-restore-latest', () => {
+  try {
+    return readLatestSettingsBackup();
+  } catch (e) {
+    return { ok: false, error: e.message || 'SETTINGS_RESTORE_FAILED' };
+  }
+});
+
+ipcMain.handle('mineradio-export-diagnostics', async (event, rendererPayload = {}) => {
+  try {
+    const owner = getSenderWindow(event);
+    let gpu = {};
+    try { gpu = await app.getGPUInfo('basic'); } catch (e) { gpu = { error: e.message || 'GPU_INFO_FAILED' }; }
+    const displays = screen.getAllDisplays().map((display) => ({
+      id: display.id,
+      bounds: display.bounds,
+      workArea: display.workArea,
+      scaleFactor: display.scaleFactor,
+      rotation: display.rotation,
+      internal: !!display.internal,
+    }));
+    const updateDir = getUpdateDownloadDir();
+    const updateFiles = fs.existsSync(updateDir)
+      ? fs.readdirSync(updateDir, { recursive: true }).filter((name) => /\.(exe|download|invalid-\d+)$/i.test(String(name))).length
+      : 0;
+    const diagnostics = {
+      schema: 1,
+      generatedAt: new Date().toISOString(),
+      app: {
+        name: APP_NAME,
+        version: app.getVersion(),
+        packaged: app.isPackaged,
+        appUserModelId: APP_USER_MODEL_ID,
+      },
+      runtime: {
+        platform: process.platform,
+        arch: process.arch,
+        osRelease: os.release(),
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+        node: process.versions.node,
+        locale: app.getLocale(),
+        memoryMb: Math.round(os.totalmem() / 1024 / 1024),
+        cpuCount: os.cpus().length,
+      },
+      window: getWindowState(mainWindow),
+      displays,
+      gpu,
+      updater: { cachedFileCount: updateFiles },
+      processes: app.getAppMetrics().map((metric) => ({
+        type: metric.type,
+        cpu: metric.cpu,
+        memory: metric.memory,
+      })),
+      renderer: rendererPayload,
+      recentEvents: diagnosticEvents.slice(-120),
+    };
+    const stamp = new Date().toISOString().slice(0, 10);
+    const result = await dialog.showSaveDialog(owner, {
+      title: '导出 Mineradio 诊断信息',
+      defaultPath: `Mineradio-diagnostics-${stamp}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(result.filePath, JSON.stringify(scrubDiagnosticValue(diagnostics), null, 2), 'utf8');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'DIAGNOSTICS_EXPORT_FAILED' };
+  }
+});
+
 ipcMain.handle('mineradio-export-json-file', async (event, payload = {}) => {
   try {
     const owner = getSenderWindow(event);
@@ -1178,14 +1827,32 @@ ipcMain.handle('qq-music-clear-login', async () => {
 
 ipcMain.handle('mineradio-open-update-installer', async (_event, filePath) => {
   try {
-    const target = path.resolve(String(filePath || ''));
+    const requestedTarget = path.resolve(String(filePath || ''));
     const updateDir = path.resolve(getUpdateDownloadDir());
-    if (!target || !target.startsWith(updateDir + path.sep)) {
-      return { ok: false, error: 'INVALID_UPDATE_PATH' };
+    if (!requestedTarget || !fs.existsSync(requestedTarget)) return { ok: false, error: 'UPDATE_FILE_MISSING' };
+    const target = fs.realpathSync.native(requestedTarget);
+    const realUpdateDir = fs.realpathSync.native(updateDir);
+    const targetLower = target.toLowerCase();
+    const updatePrefix = (realUpdateDir + path.sep).toLowerCase();
+    if (!targetLower.startsWith(updatePrefix)) return { ok: false, error: 'INVALID_UPDATE_PATH' };
+    const stat = fs.statSync(target);
+    if (!stat.isFile()) return { ok: false, error: 'UPDATE_FILE_INVALID' };
+    if (!/^Mineradio-\d+(?:\.\d+){1,3}-Setup\.exe$/i.test(path.basename(target))) {
+      return { ok: false, error: 'UPDATE_FILE_NAME_INVALID' };
     }
-    if (!fs.existsSync(target)) return { ok: false, error: 'UPDATE_FILE_MISSING' };
+    const signature = await verifyUpdateInstallerSignature(target);
+    const allowDevelopmentSignerMismatch = !app.isPackaged
+      && process.env.MINERADIO_ALLOW_UPDATE_SIGNER_MISMATCH === '1'
+      && signature.error === 'UPDATE_SIGNER_MISMATCH';
+    if (!signature.ok && !allowDevelopmentSignerMismatch) return signature;
     const error = await shell.openPath(target);
-    return error ? { ok: false, error } : { ok: true };
+    if (error) return { ok: false, error };
+    const quitTimer = setTimeout(() => {
+      isAppQuitting = true;
+      app.quit();
+    }, 500);
+    if (quitTimer.unref) quitTimer.unref();
+    return { ok: true, signature };
   } catch (e) {
     return { ok: false, error: e.message || 'OPEN_UPDATE_FAILED' };
   }
@@ -1193,6 +1860,7 @@ ipcMain.handle('mineradio-open-update-installer', async (_event, filePath) => {
 
 ipcMain.handle('mineradio-restart-app', async () => {
   try {
+    isAppQuitting = true;
     app.relaunch();
     app.exit(0);
     return { ok: true };
@@ -1328,27 +1996,19 @@ async function createWindow() {
   process.env.COOKIE_FILE = path.join(app.getPath('userData'), '.cookie');
   process.env.QQ_COOKIE_FILE = path.join(app.getPath('userData'), '.qq-cookie');
   process.env.MINERADIO_UPDATE_DIR = getUpdateDownloadDir();
-  try {
-    const legacyQQCookie = path.join(__dirname, '..', '.qq-cookie');
-    if (fs.existsSync(legacyQQCookie)) {
-      if (!fs.existsSync(process.env.QQ_COOKIE_FILE)) {
-        fs.copyFileSync(legacyQQCookie, process.env.QQ_COOKIE_FILE);
-      }
-      fs.unlinkSync(legacyQQCookie);
-    }
-  } catch (e) {
-    console.warn('QQ cookie migration skipped:', e.message);
-  }
+  const stagedLegacyCredentials = stageLegacyCredentialFiles(process.env.COOKIE_FILE, process.env.QQ_COOKIE_FILE);
 
   localServer = require(path.join(__dirname, '..', 'server.js'));
   await waitForServer(localServer);
+  finalizeLegacyCredentialMigration(stagedLegacyCredentials);
 
   const initialBounds = getWindowedBounds();
+  const initialMinimum = getAdaptiveMainMinimumSize();
 
   mainWindow = new BrowserWindow({
     ...initialBounds,
-    minWidth: 960,
-    minHeight: 540,
+    minWidth: initialMinimum.width,
+    minHeight: initialMinimum.height,
     show: false,
     frame: false,
     fullscreen: false,
@@ -1385,6 +2045,7 @@ async function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    updateTaskbarMediaButtons();
     sendWindowState(mainWindow);
   });
 
@@ -1396,8 +2057,18 @@ async function createWindow() {
   mainWindow.on('hide', () => sendWindowState(mainWindow));
   mainWindow.on('focus', () => sendWindowState(mainWindow));
   mainWindow.on('blur', () => sendWindowState(mainWindow));
-  mainWindow.on('move', () => scheduleWindowStateSend(mainWindow));
+  mainWindow.on('move', () => {
+    applyAdaptiveMainWindowConstraints(mainWindow);
+    scheduleWindowStateSend(mainWindow);
+  });
   mainWindow.on('resize', () => scheduleWindowStateSend(mainWindow));
+  mainWindow.on('close', (event) => {
+    if (isAppQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+    sendWindowState(mainWindow);
+    showTrayNoticeOnce();
+  });
   mainWindow.on('closed', () => {
     if (mainWindowStateTimer) {
       clearTimeout(mainWindowStateTimer);
@@ -1426,9 +2097,6 @@ async function createWindow() {
   await mainWindow.loadURL(`http://127.0.0.1:${port}`);
 }
 
-app.setName(APP_NAME);
-if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
-
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
@@ -1442,10 +2110,21 @@ if (!gotSingleInstanceLock) {
     screen.on('display-metrics-changed', () => {
       positionDesktopLyricsWindow();
       positionWallpaperWindow();
+      applyAdaptiveMainWindowConstraints(mainWindow);
+      refreshAdaptiveLoginWindows();
       scheduleWindowStateSend(mainWindow);
     });
-    screen.on('display-added', () => scheduleWindowStateSend(mainWindow));
-    screen.on('display-removed', () => scheduleWindowStateSend(mainWindow));
+    screen.on('display-added', () => {
+      applyAdaptiveMainWindowConstraints(mainWindow);
+      refreshAdaptiveLoginWindows();
+      scheduleWindowStateSend(mainWindow);
+    });
+    screen.on('display-removed', () => {
+      applyAdaptiveMainWindowConstraints(mainWindow);
+      refreshAdaptiveLoginWindows();
+      scheduleWindowStateSend(mainWindow);
+    });
+    createTray();
     await createWindow();
   });
 
@@ -1459,8 +2138,11 @@ if (!gotSingleInstanceLock) {
   });
 
   app.on('before-quit', () => {
+    isAppQuitting = true;
     unregisterMineradioGlobalHotkeys();
     closeOverlayWindows();
     if (localServer && localServer.close) localServer.close();
+    if (tray && !tray.isDestroyed()) tray.destroy();
+    tray = null;
   });
 }

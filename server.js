@@ -56,6 +56,12 @@ const { once } = require('events');
 const { fileURLToPath } = require('url');
 const { analyzePodcastDjStream, analyzePodcastDjIntro } = require('./dj-analyzer');
 
+let electronSafeStorage = null;
+try {
+  const electron = require('electron');
+  if (electron && typeof electron === 'object' && electron.safeStorage) electronSafeStorage = electron.safeStorage;
+} catch (_) {}
+
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -69,6 +75,9 @@ const APP_PACKAGE = readPackageInfo();
 const APP_VERSION = process.env.MINERADIO_VERSION || APP_PACKAGE.version || '0.9.11';
 const UPDATE_CONFIG = readUpdateConfig(APP_PACKAGE);
 const PATCH_MAX_BYTES = 12 * 1024 * 1024;
+const UPDATE_MAX_BYTES = 1024 * 1024 * 1024;
+const UPDATE_METADATA_MAX_BYTES = 1024 * 1024;
+const UPDATE_READ_IDLE_TIMEOUT_MS = 20000;
 const PATCH_ALLOWED_ROOTS = new Set(['public', 'desktop', 'build']);
 const PATCH_ALLOWED_FILES = new Set(['server.js', 'dj-analyzer.js', 'package.json', 'package-lock.json']);
 const UPDATE_FALLBACK_NOTES = [
@@ -172,20 +181,77 @@ function rawCookieFallback(input) {
   if (Array.isArray(input) && input.every(item => typeof item === 'string')) return input.join('; ').trim();
   return '';
 }
+const PROTECTED_SECRET_PREFIX = 'mineradio-safe-storage-v1:';
+function safeStorageAvailable() {
+  try {
+    return !!(electronSafeStorage && electronSafeStorage.isEncryptionAvailable());
+  } catch (_) {
+    return false;
+  }
+}
+function quarantineUnreadableSecret(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    fs.renameSync(filePath, `${filePath}.unreadable-${Date.now()}`);
+  } catch (_) {}
+}
+function writeProtectedSecret(filePath, value) {
+  const secret = String(value || '');
+  try {
+    if (!secret) {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      return true;
+    }
+    let payload = secret;
+    if (safeStorageAvailable()) {
+      payload = PROTECTED_SECRET_PREFIX + electronSafeStorage.encryptString(secret).toString('base64');
+    } else if (process.env.MINERADIO_ALLOW_PLAINTEXT_COOKIE !== '1') {
+      console.warn('[Credentials] secure storage unavailable; login remains in memory only');
+      return false;
+    }
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const tmp = `${filePath}.tmp`;
+    fs.writeFileSync(tmp, payload, { encoding: 'utf8', mode: 0o600 });
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    fs.renameSync(tmp, filePath);
+    return true;
+  } catch (e) {
+    console.warn('[Credentials] protected credential write failed:', e.message);
+    return false;
+  }
+}
+function readProtectedSecret(filePath) {
+  if (!fs.existsSync(filePath)) return '';
+  try {
+    const payload = fs.readFileSync(filePath, 'utf8').trim();
+    if (!payload) return '';
+    if (payload.startsWith(PROTECTED_SECRET_PREFIX)) {
+      if (!safeStorageAvailable()) return '';
+      const encrypted = Buffer.from(payload.slice(PROTECTED_SECRET_PREFIX.length), 'base64');
+      return electronSafeStorage.decryptString(encrypted).trim();
+    }
+    if (safeStorageAvailable()) writeProtectedSecret(filePath, payload);
+    return payload;
+  } catch (e) {
+    quarantineUnreadableSecret(filePath);
+    console.warn('[Credentials] stored login could not be decrypted and was isolated');
+    return '';
+  }
+}
 let userCookie = '';
-try { if (fs.existsSync(COOKIE_FILE)) userCookie = fs.readFileSync(COOKIE_FILE, 'utf8').trim(); }
+try { userCookie = readProtectedSecret(COOKIE_FILE); }
 catch (e) { userCookie = ''; }
 function saveCookie(c) {
   userCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
-  try { fs.writeFileSync(COOKIE_FILE, userCookie); } catch (e) {}
+  writeProtectedSecret(COOKIE_FILE, userCookie);
 }
 
 let qqCookie = '';
-try { if (fs.existsSync(QQ_COOKIE_FILE)) qqCookie = fs.readFileSync(QQ_COOKIE_FILE, 'utf8').trim(); }
+try { qqCookie = readProtectedSecret(QQ_COOKIE_FILE); }
 catch (e) { qqCookie = ''; }
 function saveQQCookie(c) {
   qqCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
-  try { fs.writeFileSync(QQ_COOKIE_FILE, qqCookie); } catch (e) {}
+  writeProtectedSecret(QQ_COOKIE_FILE, qqCookie);
 }
 
 // ---------- 工具 ----------
@@ -436,17 +502,16 @@ function extractReleaseNotes(body) {
   });
   return notes.slice(0, 4);
 }
-function pickReleaseAsset(assets) {
+function pickReleaseAsset(assets, latestVersion) {
   const list = Array.isArray(assets) ? assets : [];
-  const preferred = list.find(a => /\.(exe|msi)$/i.test(a && a.name || ''))
-    || list.find(a => /\.(zip|7z)$/i.test(a && a.name || ''))
-    || list[0];
+  const expectedName = `Mineradio-${normalizeVersion(latestVersion)}-Setup.exe`;
+  const preferred = list.find(a => String(a && a.name || '').toLowerCase() === expectedName.toLowerCase());
   if (!preferred) return null;
   const digest = assetDigestInfo(preferred);
   const candidates = uniqueDownloadCandidates(preferred.browser_download_url || '');
   return {
     name: preferred.name || '',
-    size: preferred.size || 0,
+    size: Number(preferred.size || 0) || 0,
     contentType: preferred.content_type || '',
     downloadUrl: preferred.browser_download_url || '',
     downloadUrls: publicDownloadUrls(candidates),
@@ -539,6 +604,7 @@ function normalizeManifestUpdateInfo(data) {
     configured: true,
     preview: false,
     updateAvailable: data.updateAvailable != null ? !!data.updateAvailable : compareVersions(latestVersion, APP_VERSION) > 0,
+    checkStatus: (data.updateAvailable != null ? !!data.updateAvailable : compareVersions(latestVersion, APP_VERSION) > 0) ? 'available' : 'current',
     currentVersion: APP_VERSION,
     latestVersion,
     release: {
@@ -648,8 +714,9 @@ function localUpdateFallback(reason, opts) {
   const configured = !!(opts.configured != null ? opts.configured : false);
   return {
     configured,
-    preview: UPDATE_CONFIG.preview,
+    preview: false,
     updateAvailable: false,
+    checkStatus: reason ? 'error' : 'current',
     currentVersion: APP_VERSION,
     latestVersion: APP_VERSION,
     release: {
@@ -658,7 +725,7 @@ function localUpdateFallback(reason, opts) {
       version: APP_VERSION,
       htmlUrl: '',
       downloadUrl: '',
-      summary: '当前版本，更新检测已就绪。',
+      summary: reason ? '检查更新失败，请稍后重试。' : '当前版本已是最新。',
       notes: UPDATE_FALLBACK_NOTES,
     },
     reason: reason || '',
@@ -708,20 +775,58 @@ async function fetchWithTimeout(url, opts, timeoutMs) {
     clearTimeout(timer);
   }
 }
+async function readUpdateChunk(reader) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(updateError('UPDATE_READ_TIMEOUT', 'Update download stalled')), UPDATE_READ_IDLE_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (err) {
+    try { await reader.cancel(err && err.message || 'download stalled'); } catch (_) {}
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 async function fetchTextFromCandidates(candidates, timeoutMs) {
   const list = Array.isArray(candidates) && candidates.length ? candidates : [];
   const failures = [];
   for (let i = 0; i < list.length; i++) {
     const candidate = list[i];
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 6500);
     try {
-      const resp = await fetchWithTimeout(candidate.url, {
-        headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
-      }, timeoutMs || 6500);
+      const resp = await fetch(candidate.url, {
+        signal: controller.signal,
+        headers: Object.assign({ 'User-Agent': `Mineradio/${APP_VERSION}` }, candidate.headers || {}),
+      });
       if (!resp.ok) throw updateError('HTTP_' + resp.status, 'HTTP ' + resp.status);
-      return { text: await resp.text(), candidate };
+      const declaredSize = Number(resp.headers.get('content-length') || 0) || 0;
+      if (declaredSize > UPDATE_METADATA_MAX_BYTES) throw updateError('UPDATE_METADATA_TOO_LARGE', 'Update metadata exceeds the size limit');
+      if (!resp.body || typeof resp.body.getReader !== 'function') throw updateError('UPDATE_METADATA_BODY_MISSING', 'Update metadata response has no body');
+      const chunks = [];
+      let received = 0;
+      const reader = resp.body.getReader();
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        const buffer = Buffer.from(chunk.value);
+        received += buffer.length;
+        if (received > UPDATE_METADATA_MAX_BYTES) {
+          try { await reader.cancel('metadata too large'); } catch (_) {}
+          throw updateError('UPDATE_METADATA_TOO_LARGE', 'Update metadata exceeds the size limit');
+        }
+        chunks.push(buffer);
+      }
+      return { text: Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, ''), candidate };
     } catch (err) {
       const info = classifyUpdateError(err);
       failures.push(candidate.label + ': ' + info.reason);
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw updateError('UPDATE_ALL_LINES_FAILED', failures.join('；') || 'All update lines failed');
@@ -739,12 +844,37 @@ function githubReleaseDownloadUrl(version, fileName) {
   const encodedName = String(fileName || '').split('/').map(part => encodeURIComponent(part)).join('/');
   return `https://github.com/${encodedOwner}/${encodedRepo}/releases/download/${tag}/${encodedName}`;
 }
+function githubReleaseAssetApiUrl(release, fileName) {
+  const expectedName = String(fileName || '').trim().toLowerCase();
+  const assets = Array.isArray(release && release.assets) ? release.assets : [];
+  const asset = assets.find(item => String(item && item.name || '').trim().toLowerCase() === expectedName);
+  const assetId = String(asset && asset.id || '').trim();
+  if (!asset || !/^\d+$/.test(assetId) || !asset.url) return '';
+  try {
+    const parsed = new URL(String(asset.url));
+    const expectedPath = `/repos/${UPDATE_CONFIG.owner}/${UPDATE_CONFIG.repo}/releases/assets/${assetId}`.toLowerCase();
+    if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'api.github.com' || parsed.pathname.toLowerCase() !== expectedPath) return '';
+    return parsed.href;
+  } catch (_) {
+    return '';
+  }
+}
 function parseLatestYmlUpdateInfo(text, reason) {
   const latestVersion = normalizeVersion(yamlScalar(text, 'version') || APP_VERSION) || APP_VERSION;
-  const assetPath = yamlScalar(text, 'path') || yamlScalar(text, 'url') || `Mineradio-${latestVersion}-Setup.exe`;
+  const expectedName = `Mineradio-${latestVersion}-Setup.exe`;
+  const assetPath = yamlScalar(text, 'path') || yamlScalar(text, 'url') || expectedName;
   const sha512 = normalizeDigest(yamlScalar(text, 'sha512'), 'sha512');
   const size = Number(yamlScalar(text, 'size') || 0) || 0;
   const releaseDate = yamlScalar(text, 'releaseDate');
+  if (path.basename(assetPath).toLowerCase() !== expectedName.toLowerCase() || assetPath !== path.basename(assetPath)) {
+    throw updateError('UPDATE_ASSET_NAME_INVALID', `Expected ${expectedName}`);
+  }
+  if (!(/^[a-f0-9]{128}$/i.test(sha512) || /^[A-Za-z0-9+/]{86}==$/.test(sha512))) {
+    throw updateError('UPDATE_DIGEST_MISSING', 'latest.yml does not contain a valid sha512 digest');
+  }
+  if (!(size > 0) || size > UPDATE_MAX_BYTES) {
+    throw updateError('UPDATE_SIZE_INVALID', 'latest.yml contains an invalid installer size');
+  }
   const downloadUrl = githubReleaseDownloadUrl(latestVersion, assetPath);
   const candidates = uniqueDownloadCandidates(downloadUrl);
   const asset = {
@@ -760,6 +890,7 @@ function parseLatestYmlUpdateInfo(text, reason) {
     configured: true,
     preview: false,
     updateAvailable: compareVersions(latestVersion, APP_VERSION) > 0,
+    checkStatus: compareVersions(latestVersion, APP_VERSION) > 0 ? 'available' : 'current',
     currentVersion: APP_VERSION,
     latestVersion,
     release: {
@@ -772,17 +903,30 @@ function parseLatestYmlUpdateInfo(text, reason) {
       asset,
       patch: null,
       patchAvailable: false,
-      summary: '发现新版本，已启用备用更新线路。',
-      notes: ['更新检测已切换到备用线路', '下载时会自动选择国内加速线路', '下载失败会显示具体原因和当前速度'],
+      summary: '发现新版本，建议更新。',
+      notes: ['更新元数据已通过 GitHub 获取', '安装包下载完成后会验证完整性', '下载失败会显示具体原因和当前速度'],
     },
     source: 'latest-yml',
     reason: reason || '',
   };
 }
-async function fetchLatestYmlUpdateInfo(reason) {
+async function fetchLatestYmlUpdateInfo(reason, release) {
   if (!UPDATE_CONFIG.configured || UPDATE_CONFIG.provider !== 'github') throw updateError('UPDATE_REPOSITORY_NOT_CONFIGURED');
   const latestYmlUrl = `https://github.com/${encodeURIComponent(UPDATE_CONFIG.owner)}/${encodeURIComponent(UPDATE_CONFIG.repo)}/releases/latest/download/latest.yml`;
-  const candidates = uniqueDownloadCandidates(latestYmlUrl);
+  const candidates = [];
+  const assetApiUrl = githubReleaseAssetApiUrl(release, 'latest.yml');
+  if (assetApiUrl) {
+    candidates.push({
+      url: assetApiUrl,
+      label: 'GitHub Releases API',
+      mirrored: false,
+      headers: {
+        'Accept': 'application/octet-stream',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+  }
+  candidates.push({ url: latestYmlUrl, label: 'GitHub 直连', mirrored: false });
   const result = await fetchTextFromCandidates(candidates, 6500);
   return parseLatestYmlUpdateInfo(result.text, reason);
 }
@@ -792,6 +936,7 @@ async function fetchLatestUpdateInfo() {
   const apiUrl = `https://api.github.com/repos/${encodeURIComponent(UPDATE_CONFIG.owner)}/${encodeURIComponent(UPDATE_CONFIG.repo)}/releases/latest`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8500);
+  let releaseData = null;
   try {
     const resp = await fetch(apiUrl, {
       signal: controller.signal,
@@ -800,19 +945,30 @@ async function fetchLatestUpdateInfo() {
         'Accept': 'application/vnd.github+json',
       },
     });
-    if (!resp.ok) {
-      try { return await fetchLatestYmlUpdateInfo('GitHub Releases ' + resp.status); }
-      catch (_) { return localUpdateFallback('GitHub Releases ' + resp.status, { configured: true }); }
-    }
+    if (!resp.ok) return await fetchLatestYmlUpdateInfo('GitHub Releases ' + resp.status);
     const data = await resp.json();
+    releaseData = data;
     const latestVersion = normalizeVersion(data.tag_name || data.name || APP_VERSION) || APP_VERSION;
-    const asset = pickReleaseAsset(data.assets);
-    const patch = pickPatchAsset(data.assets, APP_VERSION, latestVersion);
+    const releaseAsset = pickReleaseAsset(data.assets, latestVersion);
+    const metadata = await fetchLatestYmlUpdateInfo('GitHub release metadata', data);
+    if (normalizeVersion(metadata.latestVersion) !== latestVersion) {
+      throw updateError('UPDATE_VERSION_MISMATCH', 'GitHub release and latest.yml versions do not match');
+    }
+    if (compareVersions(latestVersion, APP_VERSION) > 0 && !releaseAsset) {
+      throw updateError('UPDATE_ASSET_MISSING', `Expected Mineradio-${latestVersion}-Setup.exe`);
+    }
+    const asset = metadata.release.asset;
+    if (releaseAsset) {
+      asset.contentType = releaseAsset.contentType;
+      asset.downloadUrl = releaseAsset.downloadUrl;
+      asset.downloadUrls = publicDownloadUrls(uniqueDownloadCandidates(releaseAsset.downloadUrl));
+    }
     const notes = extractReleaseNotes(data.body).length ? extractReleaseNotes(data.body) : UPDATE_FALLBACK_NOTES;
     return {
       configured: true,
       preview: false,
       updateAvailable: compareVersions(latestVersion, APP_VERSION) > 0,
+      checkStatus: compareVersions(latestVersion, APP_VERSION) > 0 ? 'available' : 'current',
       currentVersion: APP_VERSION,
       latestVersion,
       release: {
@@ -823,15 +979,15 @@ async function fetchLatestUpdateInfo() {
         htmlUrl: data.html_url || '',
         downloadUrl: asset ? asset.downloadUrl : '',
         asset,
-        patch,
-        patchAvailable: !!(patch && patch.downloadUrl && compareVersions(latestVersion, APP_VERSION) > 0),
+        patch: null,
+        patchAvailable: false,
         summary: notes[0] || '发现新版本，建议更新。',
         notes,
       },
     };
   } catch (err) {
     const reason = err && err.message || 'Update check failed';
-    try { return await fetchLatestYmlUpdateInfo(reason); }
+    try { return await fetchLatestYmlUpdateInfo(reason, releaseData); }
     catch (fallbackErr) { return localUpdateFallback((fallbackErr && fallbackErr.message) || reason, { configured: true }); }
   } finally {
     clearTimeout(timer);
@@ -965,10 +1121,13 @@ function verifyUpdateBuffer(buffer, job) {
     throw updateError('UPDATE_SIZE_MISMATCH', `Expected ${expectedSize} bytes, got ${buffer.length}`);
   }
   const expectedSha256 = normalizeDigest(job.sha256 || '', 'sha256').toLowerCase();
+  const expectedSha512 = normalizeDigest(job.sha512 || '', 'sha512');
+  if (!expectedSha256 && !expectedSha512) {
+    throw updateError('UPDATE_DIGEST_MISSING', 'Installer digest is required');
+  }
   if (expectedSha256 && sha256Hex(buffer) !== expectedSha256) {
     throw updateError('UPDATE_SHA256_MISMATCH', 'Downloaded sha256 mismatch');
   }
-  const expectedSha512 = normalizeDigest(job.sha512 || '', 'sha512');
   if (expectedSha512) {
     const actualBase64 = sha512Base64(buffer);
     const actualHex = sha512Hex(buffer).toLowerCase();
@@ -1059,9 +1218,8 @@ function prepareUpdateJobAttempt(job, candidate, index, total) {
   job.updatedAt = Date.now();
 }
 function ensureMirrorCanBeVerified(job, candidate) {
-  if (!candidate || !candidate.mirrored) return;
   if (job.sha256 || job.sha512) return;
-  throw updateError('MIRROR_HASH_MISSING', 'Mirror download skipped because no digest is available');
+  throw updateError('UPDATE_DIGEST_MISSING', 'Installer download requires a trusted digest');
 }
 async function downloadUpdateAssetWithMirrors(job) {
   const tmpPath = job.filePath + '.download';
@@ -1084,6 +1242,10 @@ async function downloadUpdateAssetWithMirrors(job) {
       if (!resp.ok) throw updateError('HTTP_' + resp.status, 'HTTP ' + resp.status);
 
       const totalHeader = parseInt(resp.headers.get('content-length') || '0', 10) || 0;
+      if (totalHeader > UPDATE_MAX_BYTES) throw updateError('UPDATE_TOO_LARGE', 'Installer exceeds the download limit');
+      if (job.expectedSize > 0 && totalHeader > 0 && totalHeader !== job.expectedSize) {
+        throw updateError('UPDATE_SIZE_MISMATCH', `Expected ${job.expectedSize} bytes, server reported ${totalHeader}`);
+      }
       job.total = totalHeader || job.expectedSize || job.total || 0;
       job.progress = 0;
       job.updatedAt = Date.now();
@@ -1094,10 +1256,13 @@ async function downloadUpdateAssetWithMirrors(job) {
       const reader = resp.body.getReader();
       try {
         while (true) {
-          const chunk = await reader.read();
+          const chunk = await readUpdateChunk(reader);
           if (chunk.done) break;
           const buf = Buffer.from(chunk.value);
           job.received += buf.length;
+          if (job.received > UPDATE_MAX_BYTES || job.expectedSize > 0 && job.received > job.expectedSize) {
+            throw updateError('UPDATE_TOO_LARGE', 'Installer exceeded the expected size');
+          }
           speedWindowBytes += buf.length;
           const now = Date.now();
           if (now - speedWindowAt >= 900) {
@@ -1150,6 +1315,7 @@ function startUpdateDownloadJob(info) {
   if (!/^https?:\/\//i.test(downloadUrl)) return { ok: false, error: 'UPDATE_ASSET_MISSING' };
 
   const version = info.latestVersion || release.version || '';
+  const expectedName = `Mineradio-${normalizeVersion(version)}-Setup.exe`;
   const existing = activeUpdateJobFor(version);
   if (existing) return publicUpdateJob(existing);
 
@@ -1159,6 +1325,9 @@ function startUpdateDownloadJob(info) {
   const expectedSize = asset.size || 0;
   const sha256 = normalizeDigest(asset.sha256 || '', 'sha256').toLowerCase();
   const sha512 = normalizeDigest(asset.sha512 || '', 'sha512');
+  if (fileName.toLowerCase() !== expectedName.toLowerCase()) return { ok: false, error: 'UPDATE_ASSET_NAME_INVALID' };
+  if (!(expectedSize > 0) || expectedSize > UPDATE_MAX_BYTES) return { ok: false, error: 'UPDATE_SIZE_INVALID' };
+  if (!sha256 && !sha512) return { ok: false, error: 'UPDATE_DIGEST_MISSING' };
   const cached = reuseVerifiedInstallerJob({
     fileName,
     filePath,
@@ -3427,23 +3596,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pn === '/api/update/patch') {
-    try {
-      const info = await fetchLatestUpdateInfo();
-      const job = startUpdatePatchJob(info);
-      sendJSON(res, job, job.ok ? 200 : 400);
-    } catch (err) {
-      console.error('[UpdatePatch]', err);
-      sendJSON(res, { ok: false, error: err.message || 'UPDATE_PATCH_START_FAILED' }, 500);
-    }
+    sendJSON(res, { ok: false, error: 'PATCH_UPDATES_DISABLED' }, 410);
     return;
   }
 
   if (pn === '/api/update/patch/status') {
-    const id = url.searchParams.get('id') || '';
-    const job = id
-      ? updateDownloadJobs.get(id)
-      : Array.from(updateDownloadJobs.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).find(item => item.mode === 'patch');
-    sendJSON(res, publicUpdateJob(job), job ? 200 : 404);
+    sendJSON(res, { ok: false, error: 'PATCH_UPDATES_DISABLED' }, 410);
     return;
   }
 

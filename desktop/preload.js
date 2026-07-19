@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   openUpdateInstaller: (filePath) => ipcRenderer.invoke('mineradio-open-update-installer', filePath),
   restartApp: () => ipcRenderer.invoke('mineradio-restart-app'),
   configureGlobalHotkeys: (bindings) => ipcRenderer.invoke('mineradio-hotkeys-configure-global', bindings || []),
+  updateSystemMediaState: (payload) => ipcRenderer.invoke('mineradio-system-media-update', payload || {}),
+  backupSettings: (payload) => ipcRenderer.invoke('mineradio-settings-backup', payload || {}),
+  restoreLatestSettingsBackup: () => ipcRenderer.invoke('mineradio-settings-restore-latest'),
+  exportDiagnostics: (payload) => ipcRenderer.invoke('mineradio-export-diagnostics', payload || {}),
   exportJsonFile: (payload) => ipcRenderer.invoke('mineradio-export-json-file', payload || {}),
   importJsonFile: () => ipcRenderer.invoke('mineradio-import-json-file'),
   onGlobalHotkey: (callback) => {

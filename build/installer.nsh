@@ -1,6 +1,10 @@
 !ifndef MUI_BGCOLOR
   !define MUI_BGCOLOR "FFFFFF"
 !endif
+
+ManifestDPIAware true
+ManifestDPIAwareness PerMonitorV2
+
 !ifndef MUI_TEXTCOLOR
   !define MUI_TEXTCOLOR "111217"
 !endif
@@ -63,8 +67,7 @@
   FileOpen $0 "$INSTDIR\${MINERADIO_INSTALL_MARKER}" w
   ${IfNot} ${Errors}
     FileWrite $0 "Mineradio install root$\r$\n"
-    FileWrite $0 "appId=com.mineradio.desktop$\r$\n"
-    FileWrite $0 "edition=community$\r$\n"
+    FileWrite $0 "appId=com.dh666i.mineradio$\r$\n"
     FileClose $0
   ${EndIf}
 !macroend
@@ -807,7 +810,7 @@ Function MineradioWelcomeShow
   SendMessage $0 ${WM_SETFONT} $MineradioSmallFont 1
   SetCtlColors $0 "3257F7" "FFFFFF"
 
-  ${NSD_CreateLabel} 22u 42u 226u 30u "Mineradio 社区二开版"
+  ${NSD_CreateLabel} 22u 42u 226u 30u "Mineradio"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioHeroFont 1
   SetCtlColors $0 "111217" "FFFFFF"
@@ -816,7 +819,7 @@ Function MineradioWelcomeShow
   Pop $0
   SetCtlColors $0 "" "3257F7"
 
-  ${NSD_CreateLabel} 22u 96u 238u 24u "非原项目官方发行。默认安装到 D:\Mineradio，下一步可以选择其它专属目录。"
+  ${NSD_CreateLabel} 22u 96u 238u 24u "Windows 桌面音乐播放器。默认安装到 D:\Mineradio，下一步可以选择其它专属目录。"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $MineradioBodyFont 1
   SetCtlColors $0 "4B5263" "FFFFFF"
