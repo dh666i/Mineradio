@@ -57,8 +57,8 @@
     var style = document.createElement('style');
     style.id = 'v140-runtime-styles';
     style.textContent = [
-      '.search-result-more{position:relative;flex:0 0 auto}',
-      '.search-result-more>summary{list-style:none;width:30px;height:30px;display:grid;place-items:center;border-radius:7px;color:rgba(255,255,255,.62);cursor:pointer;font-size:18px}',
+      '.search-result-more{position:relative;flex:0 0 30px;width:30px;min-width:30px;max-width:30px}',
+      '.search-result-more>summary{box-sizing:border-box;list-style:none;width:30px;height:30px;display:grid;place-items:center;overflow:hidden;border-radius:7px;color:rgba(255,255,255,.62);cursor:pointer;font-family:inherit;font-size:18px;line-height:1;letter-spacing:0;text-align:center}',
       '.search-result-more>summary::-webkit-details-marker{display:none}',
       '.search-result-more[open]>summary,.search-result-more>summary:hover{background:rgba(255,255,255,.08);color:#fff}',
       '.search-result-menu{position:absolute;right:0;top:34px;z-index:20;width:150px;padding:6px;background:rgba(12,16,20,.98);border:1px solid rgba(255,255,255,.11);border-radius:8px;box-shadow:0 16px 42px rgba(0,0,0,.42)}',
@@ -282,7 +282,7 @@
     var albumAction = song && (song.albumId || song.album)
       ? '<button type="button" onclick="event.stopPropagation();openSearchResultAlbum(' + index + ')">查看专辑</button>' : '';
     return '<details class="search-result-more" onclick="event.stopPropagation()">' +
-      '<summary aria-label="更多操作" title="更多操作">&middot;&middot;&middot;</summary>' +
+      '<summary aria-label="更多操作" title="更多操作">&#8230;</summary>' +
       '<div class="search-result-menu" role="menu">' +
         '<button type="button" onclick="toggleLikeSearchResult(' + index + ')">' + (isSongLiked(song) ? '取消红心' : '红心喜欢') + '</button>' +
         '<button type="button" onclick="collectSearchResult(' + index + ')">收藏到歌单</button>' +
@@ -293,8 +293,11 @@
   function renderSongSearchResultsV140(songs) {
     playlist = songs || [];
     var batchCount = typeof dedupeSearchBatchSongs === 'function' ? dedupeSearchBatchSongs(playlist).length : playlist.length;
+    var countLabel = v140Search.total > playlist.length
+      ? '已加载 <strong>' + playlist.length + '</strong><span class="search-batch-total"> / 共 ' + v140Search.total + ' 首</span>'
+      : '<strong>' + playlist.length + '</strong> 首结果';
     var toolbar = '<div class="search-batch-toolbar" role="toolbar" aria-label="搜索结果批量操作">' +
-      '<span class="search-batch-count"><strong>' + playlist.length + '</strong>' + (v140Search.total > playlist.length ? (' / ' + v140Search.total) : '') + ' 首结果</span>' +
+      '<span class="search-batch-count">' + countLabel + '</span>' +
       '<button class="search-batch-action primary" type="button" onclick="event.stopPropagation();playAllSearchResults()" aria-label="播放全部，共 ' + batchCount + ' 首"><span>播放全部</span></button>' +
       '<button class="search-batch-action" type="button" onclick="event.stopPropagation();addAllSearchResultsToQueue()" aria-label="全部加入队列，共 ' + batchCount + ' 首"><span>加入队列</span></button>' +
     '</div>';
@@ -631,6 +634,7 @@
       seconds: Math.max(0, finite(restored.state.positionSeconds, 0))
     };
     renderSelectedSongPaused(playQueue[currentIdx]);
+    if (typeof switchPlaybackVisualToEmily === 'function') switchPlaybackVisualToEmily();
     if (typeof updatePlayModeButton === 'function') updatePlayModeButton(false);
     renderQueuePanelV140({ animate: false, preserveWindow: true });
     showToast(pendingResume.seconds > 1 ? '已恢复上次队列和播放位置' : '已恢复上次队列');
@@ -1353,7 +1357,7 @@
   function updateSettingsVersion() {
     var node = byId('settings-version');
     if (!node) return;
-    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.0';
+    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.1';
     node.textContent = 'Mineradio v' + current + (updatePreviewState && updatePreviewState.checkStatus === 'available' ? (' · 可更新至 v' + updatePreviewState.version) : '');
   }
   function activateSettingsTab(name, focus) {
@@ -1380,6 +1384,7 @@
     if (typeof updatePerformanceControls === 'function') updatePerformanceControls();
   }
   window.openSettingsModal = function () {
+    if (typeof immersiveMode !== 'undefined' && immersiveMode && typeof setImmersiveMode === 'function') setImmersiveMode(false);
     syncSettingsFields();
     activateSettingsTab('playback', false);
     openGsapModal(byId('settings-modal'));

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   minimize: () => ipcRenderer.invoke('desktop-window-minimize'),
   toggleMaximize: () => ipcRenderer.invoke('desktop-window-toggle-maximize'),
   toggleFullscreen: () => ipcRenderer.invoke('desktop-window-toggle-fullscreen'),
+  setFullscreen: (enabled) => ipcRenderer.invoke('desktop-window-set-fullscreen', !!enabled),
   exitFullscreenWindowed: () => ipcRenderer.invoke('desktop-window-exit-fullscreen-windowed'),
   getState: () => ipcRenderer.invoke('desktop-window-get-state'),
   close: () => ipcRenderer.invoke('desktop-window-close'),

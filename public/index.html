@@ -44,7 +44,7 @@ body::after,#desktop-window-shell::after{content:none}
 body.desktop-shell{background:transparent}
 body.desktop-shell #desktop-window-shell{display:block;position:fixed;inset:0;overflow:hidden;border-radius:34px;clip-path:inset(0 round 34px);background:transparent;box-shadow:0 24px 80px rgba(0,0,0,.46);transform:translateZ(0)}
 body.desktop-shell.desktop-maximized #desktop-window-shell,body.desktop-shell.desktop-fullscreen #desktop-window-shell,html:fullscreen body.desktop-shell #desktop-window-shell{border-radius:0!important;clip-path:none!important;box-shadow:none!important}
-body.desktop-shell #desktop-titlebar{position:fixed;z-index:500;top:0;left:0;right:0;height:44px;padding:0 12px 0 18px;display:flex;align-items:center;justify-content:space-between;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;-webkit-app-region:drag;pointer-events:none}
+body.desktop-shell #desktop-titlebar{position:fixed;z-index:500;top:0;left:0;right:0;height:44px;padding:0 20px 0 18px;display:flex;align-items:center;justify-content:space-between;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;-webkit-app-region:drag;pointer-events:none}
 body.desktop-shell #desktop-titlebar::after{content:none}
 .desktop-drag-region{height:100%;flex:1;display:flex;align-items:center;gap:9px;min-width:0;color:rgba(224,250,255,.74);font-size:12px;font-weight:600;letter-spacing:0;text-transform:uppercase;-webkit-app-region:drag;pointer-events:auto}
 .desktop-app-mark{display:none}
@@ -759,11 +759,7 @@ body.diy-mode #controls{
   }
 }
 body.immersive-mode #desktop-titlebar,
-body.immersive-mode #search-area,
-body.immersive-mode #top-right,
 body.immersive-mode #thumb-wrap,
-body.immersive-mode #fx-fab,
-body.immersive-mode #fx-panel,
 body.immersive-mode #trial-banner,
 body.immersive-mode #ai-depth-chip,
 body.immersive-mode #beat-chip,
@@ -778,35 +774,14 @@ body.immersive-mode #toast,
 body.immersive-mode #source-fallback-notice,
 body.immersive-mode .modal-mask{opacity:0!important;visibility:hidden!important;pointer-events:none!important}
 body.immersive-mode .modal-mask{display:none!important}
-body.immersive-mode #bottom-bar.visible{z-index:32;bottom:22px;width:min(620px,calc(100vw - 56px));padding:10px 20px 13px;gap:9px;border-radius:22px;background:radial-gradient(circle at 20% 0%,rgba(255,255,255,.13),transparent 35%),linear-gradient(112deg,rgba(255,255,255,.060),rgba(12,15,18,.45) 52%,rgba(2,4,7,.58));border-color:rgba(255,255,255,.060);box-shadow:0 20px 70px rgba(0,0,0,.32),0 0 42px rgba(152,221,255,.055),inset 0 1px 0 rgba(255,255,255,.15),inset 0 -22px 58px rgba(0,0,0,.18);backdrop-filter:blur(46px) saturate(1.36);-webkit-backdrop-filter:blur(46px) saturate(1.36)}
+body.immersive-mode #top-right{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-18px);transition:opacity .2s ease,visibility 0s linear .2s,transform .28s cubic-bezier(.16,1,.3,1)}
+body.immersive-mode.immersive-top-peek #top-right{right:24px;opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0);transition:opacity .18s ease,visibility 0s,transform .28s cubic-bezier(.16,1,.3,1)}
+body.immersive-mode #fx-fab{right:-76px;opacity:0;visibility:hidden;pointer-events:none;transform:translateX(18px) scale(.96)}
+body.immersive-mode.immersive-right-peek #fx-fab{right:24px;opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0) scale(1)}
+body.immersive-mode #bottom-bar{z-index:32}
 body.immersive-mode #bottom-bar.soft-hidden{opacity:0;pointer-events:none;transform:translateX(-50%) translateY(96px) scale(.97);filter:none;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none}
-body.immersive-mode #progress-bar{height:4px;background:rgba(255,255,255,.10)}
-body.immersive-mode #progress-bar:hover,body.immersive-mode #progress-bar.is-dragging{height:5px;background:rgba(255,255,255,.14)}
-body.immersive-mode #controls{display:flex;align-items:center;justify-content:center;gap:16px}
-body.immersive-mode .control-cluster{grid-column:auto!important;justify-content:center;height:64px;gap:14px}
-body.immersive-mode .control-cluster.actions{display:none}
-body.immersive-mode .control-cluster.transport{display:flex;order:1}
-body.immersive-mode .control-cluster.modes{display:flex;order:2;gap:14px}
-body.immersive-mode .control-track,
-body.immersive-mode #heart-btn,
-body.immersive-mode #collect-btn,
-body.immersive-mode #play-mode-btn,
-body.immersive-mode .lyrics-toggle-btn,
-body.immersive-mode #mini-queue-btn,
-body.immersive-mode #quality-control,
-body.immersive-mode #volume-control,
-body.immersive-mode #controls-hide-btn,
-body.immersive-mode .control-divider,
-body.immersive-mode .fullscreen-toggle-btn{display:none!important}
-body.immersive-mode #mini-queue-popover{display:none!important}
-body.immersive-mode .ctrl-btn{width:40px;height:40px;border-radius:12px}
-body.immersive-mode .ctrl-btn svg{width:22px;height:22px}
-body.immersive-mode #play-btn{width:64px;height:64px}
-body.immersive-mode #play-btn svg{width:25px;height:25px}
 body.immersive-mode #immersive-btn{color:#fff;text-shadow:0 0 18px rgba(255,255,255,.38)}
-body.immersive-mode #time-display{display:flex;height:40px;align-items:center;justify-content:center;min-width:86px;font-size:12px;color:rgba(255,255,255,.58)}
-@media (max-width: 620px){body.immersive-mode #bottom-bar{width:calc(100vw - 20px);padding:10px 12px 12px}body.immersive-mode #controls{gap:10px}body.immersive-mode .control-cluster{gap:10px;height:60px}body.immersive-mode .ctrl-btn{width:36px;height:36px}body.immersive-mode .ctrl-btn svg{width:20px;height:20px}body.immersive-mode #play-btn{width:58px;height:58px}body.immersive-mode #time-display{min-width:72px;font-size:10.5px}}
-@media (max-width: 420px){body.immersive-mode #time-display{display:none}}
+@media (max-width:720px){body.immersive-mode.immersive-top-peek #top-right{right:12px}body.immersive-mode.immersive-right-peek #fx-fab{right:12px}}
 body.immersive-mode::after{content:'';position:fixed;left:0;right:0;bottom:0;height:118px;z-index:5;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.16))}
 
 /* ---------- 试听提醒 ---------- */
@@ -2725,7 +2700,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">发现新版本</div>
-          <div id="update-modal-version" class="update-version">v1.5.0</div>
+          <div id="update-modal-version" class="update-version">v1.5.1</div>
         </div>
         <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
@@ -3002,8 +2977,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.5.0',
-  version: '1.5.0',
+  currentVersion: '1.5.1',
+  version: '1.5.1',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -3256,7 +3231,7 @@ function shouldSuppressFullscreenDiyPeek() {
 }
 function updateFullscreenDiyPeekFromPointer(x, y) {
   var isFullscreen = !!(desktopRuntimeState.fullscreen || desktopFullscreenActive || document.fullscreenElement || document.body.classList.contains('desktop-fullscreen'));
-  if (!isFullscreen || immersiveMode || shouldSuppressFullscreenDiyPeek()) {
+  if (!isFullscreen || shouldSuppressFullscreenDiyPeek()) {
     document.body.classList.remove('fullscreen-diy-peek');
     return;
   }
@@ -3683,12 +3658,22 @@ var fxFabAutoHide = readBooleanPreference(FX_FAB_AUTO_HIDE_STORE_KEY, false);
 var fxFabAutoHideRevealArmed = true;
 var hotkeySettings = readHotkeySettings();
 var immersiveMode = false;
+var immersiveSessionId = 0;
+var immersiveFullscreenExitSessionId = 0;
+var immersiveFullscreenRestartTimer = null;
 var immersiveState = {
   shelfMode: null,
   shelfPinnedOpen: false,
   lyrics: true,
   controlsAutoHide: true,
-  bottomVisible: false
+  bottomVisible: false,
+  bottomSoftHidden: false,
+  homeControlsLocked: false,
+  searchVisible: false,
+  fxVisible: false,
+  playlistVisible: false,
+  fullscreenWasActive: false,
+  fullscreenOwned: false
 };
 
 // 鼠标 / 摄像头视差
@@ -3962,6 +3947,9 @@ function applyRendererPowerMode() {
 function updateDesktopRuntimeState(state) {
   state = state || {};
   var wasFullscreen = desktopRuntimeState.fullscreen;
+  var wasVisible = desktopRuntimeState.visible !== false;
+  var wasMinimized = !!desktopRuntimeState.minimized;
+  var wasFocused = desktopRuntimeState.focused !== false;
   var wasDeep = isDeepBackgroundMode();
   desktopRuntimeState.desktop = !!window.desktopWindow;
   desktopRuntimeState.minimized = !!state.isMinimized;
@@ -3973,6 +3961,14 @@ function updateDesktopRuntimeState(state) {
   if (fx && (fx.desktopLyrics || fx.wallpaperMode)) setTimeout(syncDesktopOverlayState, 0);
   if (wasDeep && !isDeepBackgroundMode()) recoverVisualsAfterBackground('desktop-runtime-state');
   if (desktopRuntimeState.fullscreen !== wasFullscreen) scheduleMainRendererViewportRefresh('desktop-runtime-state');
+  var becameActive = (!wasVisible && desktopRuntimeState.visible)
+    || (wasMinimized && !desktopRuntimeState.minimized)
+    || (!wasFocused && desktopRuntimeState.focused);
+  if (becameActive && !document.body.classList.contains('splash-active')) {
+    requestAnimationFrame(function(){
+      resolveVisibleAppDestination({ forceLoad: false, revealControls: true, preserveVisibleContent: true });
+    });
+  }
 }
 function installRenderPowerHooks() {
   updateRenderPowerClasses();
@@ -5588,7 +5584,7 @@ function scheduleControlsHide(delay) {
 function revealBottomControls(delay) {
   if (document.body.classList.contains('home-controls-locked')) return;
   var bar = document.getElementById('bottom-bar');
-  if (isBottomControlsSuppressedForShelf()) return;
+  if (!immersiveMode && isBottomControlsSuppressedForShelf()) return;
   if (bar) bar.classList.add('visible');
   wakeBottomHandle();
   setControlsHidden(false);
@@ -5646,9 +5642,15 @@ function toggleBottomControlsFromHandle() {
 
 function updateControlsAutoHideFromPointer(x, y) {
   if (document.body.classList.contains('home-controls-locked')) return;
-  if (isBottomControlsSuppressedForShelf()) return;
+  if (!immersiveMode && isBottomControlsSuppressedForShelf()) return;
   var bar = document.getElementById('bottom-bar');
-  if (!bar || !bar.classList.contains('visible')) return;
+  if (!bar) return;
+  if (immersiveMode && y >= innerHeight - 56) {
+    bar.classList.add('visible');
+    revealBottomControls(900);
+    return;
+  }
+  if (!bar.classList.contains('visible')) return;
   if (!controlsAutoHide) { setControlsHidden(false); return; }
   if (diyPlayerMode) {
     var fxPanel = document.getElementById('fx-panel');
@@ -16412,6 +16414,10 @@ function changeWeatherCity() {
   homeWeatherRadioState.loaded = false;
   loadHomeWeatherRadio(true, { city: city });
 }
+function currentVisibleSong() {
+  if (playQueue && currentIdx >= 0 && playQueue[currentIdx]) return playQueue[currentIdx];
+  return activePlaybackSong || null;
+}
 function shouldShowEmptyHomeCore(ignoreSplash) {
   if (!ignoreSplash && document.body.classList.contains('splash-active')) return false;
   if (immersiveMode) return false;
@@ -16419,8 +16425,7 @@ function shouldShowEmptyHomeCore(ignoreSplash) {
   if (homeSuppressed) return false;
   if (shelfPinnedOpen) return false;
   if (shelfManager && shelfManager.hasOpenContent && shelfManager.hasOpenContent()) return false;
-  if (playQueue && playQueue.length) return false;
-  if (currentIdx >= 0 && playQueue[currentIdx]) return false;
+  if (currentVisibleSong()) return false;
   if (playing) return false;
   return true;
 }
@@ -16430,18 +16435,10 @@ function shouldShowEmptyHome() {
 function shouldShowEmptyHomeAfterSplash() {
   return shouldShowEmptyHomeCore(true);
 }
-function shouldForceEmptyHomeAfterSplash() {
-  if (immersiveMode) return false;
-  if (shelfPinnedOpen) return false;
-  if (shelfManager && shelfManager.hasOpenContent && shelfManager.hasOpenContent()) return false;
-  if (playQueue && playQueue.length) return false;
-  if (currentIdx >= 0 && playQueue[currentIdx]) return false;
-  if (playing) return false;
-  return true;
-}
 function shouldUseIdleWallpaperPreview(ignoreSplash) {
   if (!ignoreSplash && document.body.classList.contains('splash-active')) return false;
   if (immersiveMode || playing || (audio && !audio.paused)) return false;
+  if (currentVisibleSong()) return false;
   if (shelfPinnedOpen) return false;
   if (shelfManager && shelfManager.hasOpenContent && shelfManager.hasOpenContent()) return false;
   return true;
@@ -16546,6 +16543,40 @@ function updateEmptyHomeVisibility(opts) {
     }
   }
   return show;
+}
+function hasVisibleAppDestination() {
+  if (immersiveMode || shelfPinnedOpen) return true;
+  if (shelfManager && shelfManager.hasOpenContent && shelfManager.hasOpenContent()) return true;
+  return !!document.querySelector([
+    '#playlist-panel.show',
+    '#playlist-panel.peek',
+    '#fx-panel.show',
+    '#fx-panel.peek',
+    '#search-results.show',
+    '.modal-mask.show',
+    '.modal.show'
+  ].join(','));
+}
+function resolveVisibleAppDestination(opts) {
+  opts = opts || {};
+  if (document.body.classList.contains('splash-active')) return 'deferred';
+  if (opts.preserveVisibleContent && (emptyHomeActive || homeForcedOpen || hasVisibleAppDestination())) return 'preserved';
+  var song = currentVisibleSong();
+  if (song) {
+    homeForcedOpen = false;
+    homeSuppressed = false;
+    setHomeControlsLocked(false);
+    updateEmptyHomeVisibility({ forceLoad: false });
+    switchPlaybackVisualToEmily();
+    forcePlaybackControlsInteractive();
+    if (opts.revealControls !== false) revealBottomControls(opts.controlsDelay || 2200);
+    return 'player';
+  }
+  if (playing || (audio && !audio.paused) || hasVisibleAppDestination()) return 'preserved';
+  homeSuppressed = false;
+  homeForcedOpen = true;
+  setHomeControlsLocked(true);
+  return updateEmptyHomeVisibility({ forceLoad: opts.forceLoad !== false }) ? 'home' : 'preserved';
 }
 function runHomeSearch(query, mode) {
   homeForcedOpen = false;
@@ -16905,6 +16936,7 @@ function openHomeLibrary() {
   refreshUserPlaylists(true);
 }
 function goHome() {
+  if (immersiveMode) setImmersiveMode(false);
   if (homeForcedOpen || emptyHomeActive) {
     dismissHomePage({ toast: true });
     showToast('已关闭 Home');
@@ -17807,6 +17839,7 @@ function toggleLikeSearchResult(i) { if (playlist[i]) toggleLikeSong(playlist[i]
 function toggleLikeQueueIndex(i) { if (playQueue[i]) toggleLikeSong(playQueue[i]); }
 function toggleLikeDetailSong(song) { toggleLikeSong(song); }
 function openCollectModal(song) {
+  if (immersiveMode) setImmersiveMode(false);
   if (!isCloudSong(song)) {
     showToast(songProviderKey(song) === 'qq' ? 'QQ 音乐收藏到歌单待登录接口接入' : '本地文件暂不支持收藏到网易云歌单');
     return;
@@ -22982,6 +23015,7 @@ function setHotkeyModalScope(scope) {
   renderHotkeySettings();
 }
 function openHotkeySettings() {
+  if (immersiveMode) setImmersiveMode(false);
   var modal = ensureHotkeyModal();
   modal.classList.add('show');
   modal.setAttribute('data-scope', modal.getAttribute('data-scope') || 'local');
@@ -23502,59 +23536,97 @@ function updateImmersiveButton() {
   btn.setAttribute('aria-label', btn.title);
 }
 
-function closeImmersiveInterference() {
+function closeImmersiveInterference(opts) {
+  opts = opts || {};
   closeMiniQueue();
   toggleFxPanel(false);
   closeUploadTip(false);
-  closeLoginModal();
-  closeUserModal();
-  closeCollectModal();
-  closeCoverCropModal();
-  closeCustomLyricModal();
-  closeTrackDetailModal();
-  if (!localBeatAnalysis.active) closeLocalBeatModal();
-  ['search-area', 'fx-panel', 'trial-banner', 'ai-depth-chip', 'beat-chip'].forEach(function(id){
+  if (opts.closeModals !== false) {
+    closeLoginModal();
+    closeUserModal();
+    closeCollectModal();
+    closeCoverCropModal();
+    closeCustomLyricModal();
+    closeTrackDetailModal();
+    if (!localBeatAnalysis.active) closeLocalBeatModal();
+  }
+  if (typeof peekTimers !== 'undefined' && peekTimers) {
+    ['search', 'fx', 'pl'].forEach(function(key){
+      if (!peekTimers[key]) return;
+      clearTimeout(peekTimers[key]);
+      peekTimers[key] = null;
+    });
+  }
+  ['search-area', 'fx-panel', 'playlist-panel', 'trial-banner', 'ai-depth-chip', 'beat-chip'].forEach(function(id){
     var el = document.getElementById(id);
     if (el) el.classList.remove('peek', 'show', 'closing');
   });
   var fab = document.getElementById('fx-fab');
   if (fab) fab.classList.remove('active');
-  document.body.classList.remove('login-guide-active');
+  document.body.classList.remove('login-guide-active', 'immersive-top-peek', 'immersive-right-peek', 'fullscreen-diy-peek');
   setFocusZone(null, true);
 }
 
-function setImmersiveMode(on) {
+function setImmersiveMode(on, opts) {
+  opts = opts || {};
   on = !!on;
-  if (immersiveMode === on) return;
+  if (immersiveMode === on) {
+    if (on && (desktopWindowState.fullscreenTarget === false || !isAppFullscreenActive())) ensureImmersiveFullscreen(immersiveSessionId);
+    return;
+  }
 
   if (on) {
+    var sessionId = ++immersiveSessionId;
+    var searchEnter = document.getElementById('search-area');
+    var fxEnter = document.getElementById('fx-panel');
+    var playlistEnter = document.getElementById('playlist-panel');
+    var fullscreenExitPending = !!immersiveFullscreenExitSessionId || desktopWindowState.fullscreenTarget === false;
+    var fullscreenWasActive = !fullscreenExitPending && isAppFullscreenActive();
     immersiveState = {
       shelfMode: fx.shelf,
       shelfPinnedOpen: shelfPinnedOpen,
       lyrics: fx.particleLyrics,
       controlsAutoHide: controlsAutoHide,
-      bottomVisible: !!(document.getElementById('bottom-bar') && document.getElementById('bottom-bar').classList.contains('visible'))
+      bottomVisible: !!(document.getElementById('bottom-bar') && document.getElementById('bottom-bar').classList.contains('visible')),
+      bottomSoftHidden: !!(document.getElementById('bottom-bar') && document.getElementById('bottom-bar').classList.contains('soft-hidden')),
+      homeControlsLocked: document.body.classList.contains('home-controls-locked'),
+      searchVisible: !!(searchEnter && searchEnter.classList.contains('peek')),
+      fxVisible: !!(fxEnter && (fxEnter.classList.contains('peek') || fxEnter.classList.contains('show'))),
+      playlistVisible: !!(playlistEnter && (playlistEnter.classList.contains('peek') || playlistEnter.classList.contains('show'))),
+      fullscreenWasActive: fullscreenWasActive,
+      fullscreenOwned: fullscreenExitPending || !fullscreenWasActive,
+      sessionId: sessionId
     };
     immersiveMode = true;
     document.body.classList.add('immersive-mode');
-    var bottomBarEnter = document.getElementById('bottom-bar');
-    if (bottomBarEnter) bottomBarEnter.classList.add('visible');
     closeImmersiveInterference();
     if (!fx.particleLyrics) setParticleLyricsSilently(true);
+    setHomeControlsLocked(false);
     controlsAutoHide = true;
+    controlsHovering = false;
+    if (controlsHideTimer) {
+      clearTimeout(controlsHideTimer);
+      controlsHideTimer = null;
+    }
     syncControlsAutoHideButton();
+    var bottomBarEnter = document.getElementById('bottom-bar');
+    if (bottomBarEnter) bottomBarEnter.classList.add('visible', 'soft-hidden');
+    updateControlsChromeState();
     updateImmersiveButton();
     syncCursorAutoHideMode();
-    revealBottomControls(720);
-    setTimeout(function(){
-      if (immersiveMode && !controlsHovering) setControlsHidden(true);
-    }, 980);
+    if (immersiveState.fullscreenOwned) ensureImmersiveFullscreen(sessionId);
     return;
   }
 
+  var exitingSessionId = immersiveState.sessionId || immersiveSessionId;
+  var exitFullscreenOwned = !!(immersiveState.fullscreenOwned || opts.forceFullscreenExit) && !opts.skipFullscreenRestore;
+  var restoreSearch = !!immersiveState.searchVisible;
+  var restoreFx = !!immersiveState.fxVisible;
+  var restorePlaylist = !!immersiveState.playlistVisible || !!playlistPanelPinned;
+  immersiveSessionId += 1;
   immersiveMode = false;
-  document.body.classList.remove('immersive-mode');
-  closeMiniQueue();
+  document.body.classList.remove('immersive-mode', 'immersive-top-peek', 'immersive-right-peek', 'fullscreen-diy-peek');
+  closeImmersiveInterference({ closeModals: false });
   if (immersiveState.shelfMode) setShelfMode(immersiveState.shelfMode);
   if (immersiveState.shelfMode === 'side' && immersiveState.shelfPinnedOpen) setShelfPinnedOpen(true, true);
   else setShelfPinnedOpen(false, true);
@@ -23563,10 +23635,22 @@ function setImmersiveMode(on) {
   syncControlsAutoHideButton();
   updateImmersiveButton();
   syncCursorAutoHideMode();
+  setHomeControlsLocked(!!immersiveState.homeControlsLocked && !!(homeForcedOpen || emptyHomeActive));
+  if (controlsHideTimer) {
+    clearTimeout(controlsHideTimer);
+    controlsHideTimer = null;
+  }
   var bottomBarExit = document.getElementById('bottom-bar');
-  if (immersiveState.bottomVisible) revealBottomControls(900);
+  if (immersiveState.bottomVisible && immersiveState.bottomSoftHidden && bottomBarExit) {
+    bottomBarExit.classList.add('visible', 'soft-hidden');
+    updateControlsChromeState();
+  } else if (immersiveState.bottomVisible) revealBottomControls(900);
   else if (bottomBarExit) bottomBarExit.classList.remove('visible', 'soft-hidden');
-  showToast('已退出全沉浸式');
+  if (restoreSearch) setPeek(document.getElementById('search-area'), true, 'search');
+  if (restoreFx && diyPlayerMode) setPeek(document.getElementById('fx-panel'), true, 'fx');
+  if (restorePlaylist) setPeek(document.getElementById('playlist-panel'), true, 'pl');
+  if (exitFullscreenOwned) requestImmersiveFullscreenExit(exitingSessionId);
+  if (!opts.silent) showToast('已退出全沉浸式');
 }
 
 function toggleImmersiveMode() {
@@ -24156,6 +24240,7 @@ function pulseUpdateReady() {
 // ============================================================
 function openGsapModal(mask) {
   if (!mask) return;
+  if (immersiveMode) setImmersiveMode(false);
   var panel = mask.querySelector('.modal');
   mask.classList.add('show');
   if (window.gsap) {
@@ -24225,6 +24310,7 @@ function bindModalBackdropClose() {
   });
 }
 function onUserBtnClick() {
+  if (immersiveMode) setImmersiveMode(false);
   if (hasAnyPlatformLogin()) showUserModal();
   else showLoginModal();
 }
@@ -26186,9 +26272,9 @@ document.addEventListener('keydown', function(e){
       setImmersiveMode(false);
       return;
     }
-    if (window.desktopWindow && window.desktopWindow.isDesktop && desktopFullscreenActive && !document.fullscreenElement && window.desktopWindow.exitFullscreenWindowed) {
+    if (window.desktopWindow && window.desktopWindow.isDesktop && desktopFullscreenActive && !document.fullscreenElement) {
       e.preventDefault();
-      window.desktopWindow.exitFullscreenWindowed();
+      setAppFullscreen(false);
       return;
     }
     if (document.fullscreenElement) {
@@ -26239,10 +26325,9 @@ var PEEK_HIDE_DELAY = 170;
 var peekTimers = { search:null, fx:null, pl:null };
 function setPeek(el, on, key) {
   if (!el) return;
-  if (immersiveMode && on && (key === 'search' || key === 'fx')) return;
   if (on && !diyPlayerMode && key === 'fx') return;
   if (!on && key === 'search' && emptyHomeActive && !immersiveMode) return;
-  if (!on && key === 'pl' && playlistPanelPinned) return;
+  if (!on && key === 'pl' && playlistPanelPinned && !immersiveMode) return;
   if (on && key === 'fx') document.body.classList.remove('fullscreen-diy-peek');
   if (on) {
     var wasPeek = el.classList.contains('peek');
@@ -26422,6 +26507,18 @@ function isPlaylistPanelFocusActive(inTrigger, inPanel, pp, ex, ppRect) {
   if (isSecondaryLeftDisplaySeamGuardActive() && ex < SECONDARY_PLAYLIST_SEAM_CLOSE_X) return false;
   return inTrigger || inPanel || (pp && pp.classList.contains('peek') && ex < ppRect.right + playlistPanelFocusPadding());
 }
+function clearImmersivePointerUi() {
+  if (!immersiveMode) return;
+  document.body.classList.remove('immersive-top-peek', 'immersive-right-peek', 'fullscreen-diy-peek');
+  setPeek(document.getElementById('search-area'), false, 'search');
+  setPeek(document.getElementById('fx-panel'), false, 'fx');
+  setPeek(document.getElementById('playlist-panel'), false, 'pl');
+  resetSecondaryPlaylistEdgeGuard();
+  closeMiniQueue();
+  controlsHovering = false;
+  setControlsHidden(true);
+  setFocusZone(null, true);
+}
 window.addEventListener('mousemove', function(e){
   var sa = document.getElementById('search-area');
   var fp = document.getElementById('fx-panel');
@@ -26440,12 +26537,40 @@ window.addEventListener('mousemove', function(e){
     updateShelfHoverCueFromPointer(e);
     updateShelfCardHoverSelection(e);
     updateControlsAutoHideFromPointer(ex, ey);
+
+    var searchOnImm = !!(sa && sa.classList.contains('peek'));
+    var searchRectImm = sa ? sa.getBoundingClientRect() : null;
+    var searchHalfWidthImm = Math.min(390, Math.max(170, W * 0.28));
+    var inSearchEdgeImm = ey <= 54 && ex >= W / 2 - searchHalfWidthImm && ex <= W / 2 + searchHalfWidthImm;
+    var inSearchPanelImm = !!(searchOnImm && searchRectImm && ex >= searchRectImm.left - 24 && ex <= searchRectImm.right + 24 && ey >= searchRectImm.top - 22 && ey <= searchRectImm.bottom + 42);
+    var searchFocusedImm = document.activeElement === $input;
+    if (inSearchEdgeImm || inSearchPanelImm || searchFocusedImm) setPeek(sa, true, 'search');
+    else if (searchOnImm) setPeek(sa, false, 'search');
+
+    var topRightImm = document.getElementById('top-right');
+    var topRightRectImm = topRightImm ? topRightImm.getBoundingClientRect() : null;
+    var inTopRightEdgeImm = ey <= 54 && ex >= Math.max(W * 0.62, W - 520);
+    var inTopRightPanelImm = !!(document.body.classList.contains('immersive-top-peek') && topRightRectImm && ex >= topRightRectImm.left - 26 && ex <= topRightRectImm.right + 18 && ey >= topRightRectImm.top - 18 && ey <= topRightRectImm.bottom + 34);
+    document.body.classList.toggle('immersive-top-peek', inTopRightEdgeImm || inTopRightPanelImm);
+
+    var fpOnImm = !!(fp && (fp.classList.contains('peek') || fp.classList.contains('show')));
+    var fpRectImm = fp ? fp.getBoundingClientRect() : null;
+    var fabImm = document.getElementById('fx-fab');
+    var fabRectImm = fabImm ? fabImm.getBoundingClientRect() : null;
+    var inFxEdgeImm = !!(diyPlayerMode && ex >= W - 58 && ey > 96 && ey < H - 96);
+    var inFxPanelImm = !!(fpOnImm && fpRectImm && ex >= fpRectImm.left - 24 && ex <= fpRectImm.right + 24 && ey >= fpRectImm.top - 24 && ey <= fpRectImm.bottom + 24);
+    var inFxFabImm = !!(document.body.classList.contains('immersive-right-peek') && fabRectImm && ex >= fabRectImm.left - 18 && ex <= fabRectImm.right + 18 && ey >= fabRectImm.top - 18 && ey <= fabRectImm.bottom + 18);
+    var keepFxImm = !!(diyPlayerMode && (inFxEdgeImm || inFxPanelImm || inFxFabImm));
+    document.body.classList.toggle('immersive-right-peek', keepFxImm);
+    if (keepFxImm) setPeek(fp, true, 'fx');
+    else if (fpOnImm) setPeek(fp, false, 'fx');
+
     var ppOnImm = pp.classList.contains('peek');
     var ppRectImm = pp.getBoundingClientRect();
     var inQueueTriggerImm = isPlaylistEdgeTrigger(ex, ey, H);
     var inQueuePanelImm = ppOnImm && ex >= ppRectImm.left - 18 && ex <= ppRectImm.right + 24 && ey >= ppRectImm.top - 22 && ey <= ppRectImm.bottom + 22;
     if (inQueueTriggerImm || inQueuePanelImm) setPeek(pp, true, 'pl');
-    else if (shouldClosePlaylistPanelFromPointer(ppOnImm, ex, ppRectImm)) setPeek(pp, false, 'pl');
+    else if (ppOnImm) setPeek(pp, false, 'pl');
     var shelfCanFocusImm = !!(shelfManager && shelfManager.canInteract && shelfManager.canInteract());
     var newFocusImm = null;
     var queueFocusImm = isPlaylistPanelFocusActive(inQueueTriggerImm, inQueuePanelImm, pp, ex, ppRectImm);
@@ -26455,6 +26580,7 @@ window.addEventListener('mousemove', function(e){
     else if (shelfHoverFocusImm) newFocusImm = 'shelf-side';
     else if (shelfCanFocusImm && shelfManager.getMode() === 'stage' && ey > H * 0.55) newFocusImm = 'shelf-stage';
     setFocusZone(newFocusImm, newFocusImm === 'queue');
+    updateFullscreenDiyPeekFromPointer(ex, ey);
     return;
   }
   updateShelfHoverCueFromPointer(e);
@@ -26509,6 +26635,10 @@ window.addEventListener('mousemove', function(e){
     newFocus = 'shelf-stage';
   }
   setFocusZone(newFocus, newFocus === 'queue');
+});
+window.addEventListener('blur', clearImmersivePointerUi);
+window.addEventListener('mouseout', function(e){
+  if (!e.relatedTarget && !e.toElement) clearImmersivePointerUi();
 });
 
 // ============================================================
@@ -27080,12 +27210,7 @@ function dismissSplash() {
     markAppPerf('home-revealed');
     if (s && s.parentNode) s.style.display = 'none';
     requestAnimationFrame(function(){
-      var homeShown = updateEmptyHomeVisibility({ forceLoad: true });
-      if (!homeShown && shouldForceEmptyHomeAfterSplash()) {
-        homeSuppressed = false;
-        homeForcedOpen = true;
-        homeShown = updateEmptyHomeVisibility({ forceLoad: true });
-      }
+      var homeShown = resolveVisibleAppDestination({ forceLoad: true, revealControls: true }) === 'home';
       requestAnimationFrame(function(){
         var guideStarted = maybeRunStartupVisualGuide('splash');
         if (!guideStarted && !hasAnyPlatformLogin()) maybeRunStartupLoginGuide('splash');
@@ -27499,32 +27624,131 @@ var desktopFullscreenActive = false;
 var documentFullscreenActive = false;
 var desktopWindowState = {};
 
+function isAppFullscreenActive() {
+  return !!(
+    document.fullscreenElement ||
+    documentFullscreenActive ||
+    desktopFullscreenActive ||
+    desktopRuntimeState.fullscreen ||
+    document.body.classList.contains('desktop-fullscreen') ||
+    desktopWindowState.isFullScreen ||
+    desktopWindowState.isNativeFullScreen ||
+    desktopWindowState.isHtmlFullScreen ||
+    desktopWindowState.isWindowFullScreen
+  );
+}
+
+function setAppFullscreen(enabled) {
+  enabled = !!enabled;
+  var api = window.desktopWindow;
+  if (api && api.isDesktop) {
+    var desktopAction = null;
+    if (typeof api.setFullscreen === 'function') {
+      desktopAction = api.setFullscreen(enabled);
+    } else if (enabled && !isAppFullscreenActive() && typeof api.toggleFullscreen === 'function') {
+      desktopAction = api.toggleFullscreen();
+    } else if (!enabled && typeof api.exitFullscreenWindowed === 'function') {
+      desktopAction = api.exitFullscreenWindowed();
+    } else if (!enabled && isAppFullscreenActive() && typeof api.toggleFullscreen === 'function') {
+      desktopAction = api.toggleFullscreen();
+    }
+    scheduleMainRendererViewportRefresh(enabled ? 'desktop-fullscreen-enter' : 'desktop-fullscreen-exit');
+    return Promise.resolve(desktopAction).then(function(){ return true; }).catch(function(){
+      showToast(enabled ? '无法进入全屏' : '无法退出全屏');
+      return false;
+    });
+  }
+  if (enabled) {
+    if (document.fullscreenElement) return Promise.resolve(true);
+    return document.documentElement.requestFullscreen().then(function(){
+      scheduleMainRendererViewportRefresh('document-fullscreen-enter');
+      return true;
+    }).catch(function(){ showToast('全屏被浏览器拒绝'); return false; });
+  }
+  if (!document.fullscreenElement || !document.exitFullscreen) return Promise.resolve(true);
+  return document.exitFullscreen().then(function(){
+    scheduleMainRendererViewportRefresh('document-fullscreen-exit');
+    return true;
+  }).catch(function(){ showToast('无法退出全屏'); return false; });
+}
+
+function waitForAppFullscreenState(enabled, timeout) {
+  var deadline = performance.now() + (timeout == null ? 2400 : timeout);
+  return new Promise(function(resolve){
+    function check() {
+      if (isAppFullscreenActive() === !!enabled) {
+        resolve(true);
+        return;
+      }
+      if (performance.now() >= deadline) {
+        resolve(false);
+        return;
+      }
+      setTimeout(check, 50);
+    }
+    check();
+  });
+}
+
+function ensureImmersiveFullscreen(sessionId) {
+  var requestSessionId = sessionId == null ? immersiveSessionId : sessionId;
+  return setAppFullscreen(true).then(function(accepted){
+    if (!accepted) return false;
+    return waitForAppFullscreenState(true, 2400);
+  }).then(function(entered){
+    if (requestSessionId !== immersiveSessionId || entered || !immersiveMode || !immersiveState.fullscreenOwned) return entered;
+    setImmersiveMode(false, { skipFullscreenRestore: true, silent: true });
+    requestImmersiveFullscreenExit(requestSessionId);
+    showToast('未能进入全屏，已退出沉浸模式');
+    return false;
+  });
+}
+
+function finishImmersiveFullscreenExit(sessionId) {
+  if (!immersiveFullscreenExitSessionId) return false;
+  if (sessionId != null && sessionId !== immersiveFullscreenExitSessionId) return false;
+  immersiveFullscreenExitSessionId = 0;
+  if (immersiveFullscreenRestartTimer) clearTimeout(immersiveFullscreenRestartTimer);
+  immersiveFullscreenRestartTimer = null;
+  if (immersiveMode && immersiveState.fullscreenOwned) {
+    var restartSessionId = immersiveState.sessionId;
+    immersiveFullscreenRestartTimer = setTimeout(function(){
+      immersiveFullscreenRestartTimer = null;
+      if (immersiveMode && immersiveState.fullscreenOwned && immersiveState.sessionId === restartSessionId && !isAppFullscreenActive()) {
+        ensureImmersiveFullscreen(restartSessionId);
+      }
+    }, 120);
+  }
+  return true;
+}
+
+function requestImmersiveFullscreenExit(sessionId) {
+  var exitSessionId = sessionId || immersiveSessionId;
+  immersiveFullscreenExitSessionId = exitSessionId;
+  return setAppFullscreen(false).then(function(accepted){
+    if (!accepted) {
+      finishImmersiveFullscreenExit(exitSessionId);
+      return false;
+    }
+    return waitForAppFullscreenState(false, 2400).then(function(exited){
+      finishImmersiveFullscreenExit(exitSessionId);
+      return exited;
+    });
+  });
+}
+
 function toggleFullscreen() {
+  if (immersiveMode) {
+    setImmersiveMode(false, { forceFullscreenExit: true });
+    return;
+  }
   var api = window.desktopWindow;
   if (api && api.isDesktop && typeof api.toggleFullscreen === 'function') {
-    if (document.fullscreenElement && document.exitFullscreen) {
-      document.exitFullscreen().catch(function(){});
-      scheduleMainRendererViewportRefresh('document-fullscreen-exit');
-      return;
-    }
-    api.toggleFullscreen();
+    Promise.resolve(api.toggleFullscreen()).catch(function(){ showToast('无法切换全屏'); });
     scheduleMainRendererViewportRefresh('desktop-fullscreen-toggle');
     return;
   }
-  if (api && api.isDesktop && desktopFullscreenActive && !document.fullscreenElement && typeof api.exitFullscreenWindowed === 'function') {
-    api.exitFullscreenWindowed();
-    scheduleMainRendererViewportRefresh('desktop-fullscreen-exit');
-    return;
-  }
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(function(){
-      if (api && api.isDesktop && typeof api.toggleFullscreen === 'function') api.toggleFullscreen();
-      else showToast('全屏被浏览器拒绝');
-    });
-  } else {
-    document.exitFullscreen();
-    scheduleMainRendererViewportRefresh('document-fullscreen-exit');
-  }
+  setAppFullscreen(!isAppFullscreenActive());
 }
 
 (function initDesktopWindowShell(){
@@ -27540,11 +27764,23 @@ function toggleFullscreen() {
   var maxBtn = document.querySelector('[data-window-action="maximize"]');
   var maxIcon = maxBtn && maxBtn.querySelector('.icon-maximize');
   var restoreIcon = maxBtn && maxBtn.querySelector('.icon-restore');
+  var lastFullscreenEscapeSerial = 0;
   function applyState(state) {
     desktopWindowState = Object.assign(desktopWindowState, state || {});
     var isMaximized = !!desktopWindowState.isMaximized;
     var isFullScreen = !!desktopWindowState.isFullScreen || !!desktopWindowState.isNativeFullScreen || !!desktopWindowState.isHtmlFullScreen || !!desktopWindowState.isWindowFullScreen || !!document.fullscreenElement;
     var wasFullScreen = desktopFullscreenActive;
+    var expectedImmersiveExit = false;
+    var fullscreenEscapeSerial = Math.max(0, Number(desktopWindowState.fullscreenEscapeSerial) || 0);
+    var fullscreenEscapeRequested = fullscreenEscapeSerial > lastFullscreenEscapeSerial;
+    lastFullscreenEscapeSerial = Math.max(lastFullscreenEscapeSerial, fullscreenEscapeSerial);
+    if (fullscreenEscapeRequested && immersiveMode) {
+      immersiveFullscreenExitSessionId = 0;
+      if (immersiveFullscreenRestartTimer) clearTimeout(immersiveFullscreenRestartTimer);
+      immersiveFullscreenRestartTimer = null;
+      setImmersiveMode(false, { skipFullscreenRestore: true });
+      setAppFullscreen(false);
+    }
     desktopFullscreenActive = isFullScreen;
     document.body.classList.toggle('desktop-maximized', isMaximized);
     document.body.classList.toggle('desktop-fullscreen', isFullScreen);
@@ -27555,7 +27791,23 @@ function toggleFullscreen() {
       if (!isFullScreen) {
         document.body.classList.remove('fullscreen-diy-peek');
         setTimeout(function(){ clearPlayerControlFocusState('desktop-fullscreen-exit'); }, 80);
+        expectedImmersiveExit = wasFullScreen && finishImmersiveFullscreenExit();
+        if (immersiveMode && wasFullScreen && !expectedImmersiveExit) {
+          setTimeout(function(){
+            if (!immersiveMode || isAppFullscreenActive()) return;
+            if (immersiveState.fullscreenOwned && desktopWindowState.fullscreenTarget === true) ensureImmersiveFullscreen(immersiveState.sessionId);
+            else setImmersiveMode(false, { skipFullscreenRestore: true });
+          }, 0);
+        }
       }
+    }
+    if (immersiveMode && !isFullScreen && desktopWindowState.fullscreenTarget === false && !immersiveFullscreenExitSessionId && !expectedImmersiveExit) {
+      var canceledSessionId = immersiveState.sessionId;
+      setTimeout(function(){
+        if (immersiveMode && immersiveState.sessionId === canceledSessionId && !isAppFullscreenActive() && desktopWindowState.fullscreenTarget === false && !immersiveFullscreenExitSessionId) {
+          setImmersiveMode(false, { skipFullscreenRestore: true });
+        }
+      }, 0);
     }
     syncCursorAutoHideMode();
     if (maxBtn) {

@@ -24,6 +24,12 @@ let wallpaperWindow = null;
 let wallpaperState = {};
 let htmlFullscreenActive = false;
 let windowFullscreenActive = false;
+let explicitFullscreenTarget = null;
+let explicitFullscreenRestoreState = null;
+let explicitFullscreenRestoreTimer = null;
+let explicitFullscreenGeneration = 0;
+let explicitFullscreenPhase = 'idle';
+let explicitFullscreenEscapeSerial = 0;
 let mainWindowStateTimer = null;
 let backgroundRuntimePolicy = 'auto';
 const registeredGlobalHotkeys = new Map();
@@ -617,6 +623,9 @@ function getWindowState(win) {
     isHtmlFullScreen: false,
     isWindowFullScreen: false,
     isFullScreen: false,
+    fullscreenTarget: null,
+    fullscreenPhase: 'idle',
+    fullscreenEscapeSerial: 0,
     isMinimized: false,
     isVisible: false,
     isFocused: false,
@@ -633,6 +642,9 @@ function getWindowState(win) {
     isHtmlFullScreen: htmlFullscreenActive,
     isWindowFullScreen: windowFullscreenActive,
     isFullScreen: win.isFullScreen() || htmlFullscreenActive || windowFullscreenActive,
+    fullscreenTarget: explicitFullscreenTarget,
+    fullscreenPhase: explicitFullscreenPhase,
+    fullscreenEscapeSerial: explicitFullscreenEscapeSerial,
     isMinimized: win.isMinimized(),
     isVisible: win.isVisible(),
     isFocused: win.isFocused(),
@@ -1610,34 +1622,100 @@ function applyWindowedBounds(win) {
 }
 
 function exitFullscreenToWindow(win) {
-  if (!win || win.isDestroyed()) return;
-  windowFullscreenActive = false;
-
-  if (!win.isFullScreen()) {
-    applyWindowedBounds(win);
-    return;
-  }
-
-  let applied = false;
-  const applyOnce = () => {
-    if (applied || !win || win.isDestroyed() || win.isFullScreen()) return;
-    applied = true;
-    applyWindowedBounds(win);
-  };
-
-  win.once('leave-full-screen', () => setTimeout(applyOnce, 50));
-  win.setFullScreen(false);
-  setTimeout(applyOnce, 500);
+  setFullscreen(win, false);
 }
 
 function toggleFullscreen(win) {
   if (!win || win.isDestroyed()) return;
-  if (win.isFullScreen() || windowFullscreenActive) {
-    exitFullscreenToWindow(win);
+  const currentTarget = explicitFullscreenTarget === null
+    ? !!(win.isFullScreen() || windowFullscreenActive)
+    : explicitFullscreenTarget;
+  setFullscreen(win, !currentTarget);
+}
+
+function captureExplicitFullscreenRestoreState(win) {
+  if (!win || win.isDestroyed()) return null;
+  return {
+    bounds: win.isMaximized() ? win.getNormalBounds() : win.getBounds(),
+    maximized: win.isMaximized(),
+  };
+}
+
+function restoreExplicitFullscreenWindow(win, generation) {
+  if (!win || win.isDestroyed() || win.isFullScreen()) return false;
+  if (generation !== undefined && generation !== explicitFullscreenGeneration) return false;
+  if (explicitFullscreenTarget === true) return false;
+  const restore = explicitFullscreenRestoreState;
+  explicitFullscreenTarget = null;
+  explicitFullscreenRestoreState = null;
+  explicitFullscreenPhase = 'idle';
+  if (explicitFullscreenRestoreTimer) {
+    clearTimeout(explicitFullscreenRestoreTimer);
+    explicitFullscreenRestoreTimer = null;
+  }
+  if (!restore) {
+    sendWindowState(win);
+    return true;
+  }
+  const minimum = getAdaptiveMainMinimumSize(win);
+  win.setMinimumSize(minimum.width, minimum.height);
+  if (restore.maximized) {
+    if (!win.isMaximized()) win.maximize();
+  } else {
+    if (win.isMaximized()) win.unmaximize();
+    if (restore.bounds) win.setBounds(restore.bounds, false);
+    applyAdaptiveMainWindowConstraints(win);
+  }
+  sendWindowState(win);
+  return true;
+}
+
+function scheduleExplicitFullscreenRestore(win, delay, generation) {
+  if (explicitFullscreenRestoreTimer) clearTimeout(explicitFullscreenRestoreTimer);
+  const expectedGeneration = generation === undefined ? explicitFullscreenGeneration : generation;
+  explicitFullscreenRestoreTimer = setTimeout(() => {
+    explicitFullscreenRestoreTimer = null;
+    if (!win || win.isDestroyed()) return;
+    if (expectedGeneration !== explicitFullscreenGeneration || explicitFullscreenTarget === true) return;
+    if (win.isFullScreen()) {
+      scheduleExplicitFullscreenRestore(win, 180, expectedGeneration);
+      return;
+    }
+    restoreExplicitFullscreenWindow(win, expectedGeneration);
+  }, delay);
+}
+
+function setFullscreen(win, enabled) {
+  if (!win || win.isDestroyed()) return;
+  const nextTarget = !!enabled;
+  const previousPhase = explicitFullscreenPhase;
+  const generation = ++explicitFullscreenGeneration;
+  explicitFullscreenTarget = nextTarget;
+  if (explicitFullscreenRestoreTimer) {
+    clearTimeout(explicitFullscreenRestoreTimer);
+    explicitFullscreenRestoreTimer = null;
+  }
+
+  if (nextTarget) {
+    if (!explicitFullscreenRestoreState && !win.isFullScreen()) {
+      explicitFullscreenRestoreState = captureExplicitFullscreenRestoreState(win);
+    }
+    if (win.isFullScreen()) {
+      explicitFullscreenPhase = previousPhase === 'exiting' || previousPhase === 'reentering'
+        ? 'reentering'
+        : 'fullscreen';
+      sendWindowState(win);
+      return;
+    }
+    explicitFullscreenPhase = 'entering';
+    win.setFullScreen(true);
+    sendWindowState(win);
     return;
   }
-  windowFullscreenActive = true;
-  win.setFullScreen(true);
+
+  explicitFullscreenPhase = 'exiting';
+  win.setFullScreen(false);
+  scheduleExplicitFullscreenRestore(win, 900, generation);
   sendWindowState(win);
 }
 
@@ -2057,6 +2135,12 @@ ipcMain.handle('desktop-window-toggle-fullscreen', (event) => {
   return { ok: true };
 });
 
+ipcMain.handle('desktop-window-set-fullscreen', (event, enabled) => {
+  if (!isTrustedMainRenderer(event)) return ipcForbidden();
+  setFullscreen(getSenderWindow(event), !!enabled);
+  return { ok: true };
+});
+
 ipcMain.handle('desktop-window-exit-fullscreen-windowed', (event) => {
   if (!isTrustedMainRenderer(event)) return ipcForbidden();
   exitFullscreenToWindow(getSenderWindow(event));
@@ -2450,6 +2534,15 @@ ipcMain.handle('mineradio-wallpaper-update', async (event, payload) => {
 async function createWindow() {
   htmlFullscreenActive = false;
   windowFullscreenActive = false;
+  explicitFullscreenTarget = null;
+  explicitFullscreenRestoreState = null;
+  explicitFullscreenGeneration = 0;
+  explicitFullscreenPhase = 'idle';
+  explicitFullscreenEscapeSerial = 0;
+  if (explicitFullscreenRestoreTimer) {
+    clearTimeout(explicitFullscreenRestoreTimer);
+    explicitFullscreenRestoreTimer = null;
+  }
   const port = await findOpenPort(3000);
   mainServerPort = port;
 
@@ -2513,9 +2606,10 @@ async function createWindow() {
   });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && (input.key === 'Escape' || input.code === 'Escape') && mainWindow.isFullScreen()) {
+    if (input.type === 'keyDown' && (input.key === 'Escape' || input.code === 'Escape') && (mainWindow.isFullScreen() || explicitFullscreenTarget === true)) {
       event.preventDefault();
-      exitFullscreenToWindow(mainWindow);
+      explicitFullscreenEscapeSerial += 1;
+      setFullscreen(mainWindow, false);
     }
   });
 
@@ -2554,12 +2648,40 @@ async function createWindow() {
     mainWindow = null;
   });
   mainWindow.on('enter-full-screen', () => {
+    if (explicitFullscreenTarget !== true) {
+      explicitFullscreenPhase = 'exiting';
+      windowFullscreenActive = false;
+      mainWindow.setFullScreen(false);
+      scheduleExplicitFullscreenRestore(mainWindow, 900, explicitFullscreenGeneration);
+      sendWindowState(mainWindow);
+      return;
+    }
+    explicitFullscreenPhase = 'fullscreen';
     windowFullscreenActive = true;
     sendWindowState(mainWindow);
   });
   mainWindow.on('leave-full-screen', () => {
     windowFullscreenActive = false;
-    setTimeout(() => applyWindowedBounds(mainWindow), 50);
+    sendWindowState(mainWindow);
+    if (explicitFullscreenTarget === true) {
+      const generation = explicitFullscreenGeneration;
+      explicitFullscreenPhase = 'entering';
+      if (explicitFullscreenRestoreTimer) clearTimeout(explicitFullscreenRestoreTimer);
+      explicitFullscreenRestoreTimer = setTimeout(() => {
+        explicitFullscreenRestoreTimer = null;
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (generation !== explicitFullscreenGeneration || explicitFullscreenTarget !== true || mainWindow.isFullScreen()) return;
+        mainWindow.setFullScreen(true);
+        sendWindowState(mainWindow);
+      }, 80);
+      return;
+    }
+    if (explicitFullscreenTarget !== false) {
+      explicitFullscreenTarget = false;
+      explicitFullscreenGeneration += 1;
+    }
+    explicitFullscreenPhase = 'exiting';
+    scheduleExplicitFullscreenRestore(mainWindow, 50, explicitFullscreenGeneration);
   });
   mainWindow.on('enter-html-full-screen', () => {
     htmlFullscreenActive = true;
