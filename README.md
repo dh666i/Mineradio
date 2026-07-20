@@ -4,6 +4,10 @@
 
 Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、搜索播放、歌词舞台、粒子视觉和 3D 歌单架组合成一个更接近现场感的私人音乐空间。
 
+## 项目说明
+
+本项目基于 [XxHuberrr/Mineradio](https://github.com/XxHuberrr/Mineradio) 持续开发。由于上游项目目前更新较少，为继续完善实际使用体验，本仓库在遵守 GPL-3.0 许可证的前提下进行二次开发与维护。感谢原作者 [@XxHuberrr](https://github.com/XxHuberrr) 完成初始版本；完整版权与来源说明见 [NOTICE.md](./NOTICE.md)。
+
 ## 当前状态
 
 当前源码版本：`1.5.1`
