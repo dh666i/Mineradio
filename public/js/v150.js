@@ -1385,7 +1385,11 @@
     if (!pid) return;
     var key = 'netease:' + String(pid);
     var state = window.playlistPanelDetailState;
-    if (state && state.key === key && !state.loading && state.tracks && state.tracks.length) {
+    if (state && state.key === key) {
+      if (typeof window.collapsePlaylistPanelDetail === 'function') {
+        window.collapsePlaylistPanelDetail();
+        return;
+      }
       return legacy.openPlaylistPanelDetail(provider, pid, title);
     }
     var playlist = (window.userPlaylists || []).find(function (item) {
@@ -1775,6 +1779,6 @@
     discover: discoverState,
     playlist: discoverPlaylist,
     search: typedSearch,
-    version: '1.5.1',
+    version: '1.5.2',
   };
 })();

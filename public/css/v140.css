@@ -158,11 +158,30 @@ body.empty-home-active .home-visual { animation: none; }
 .search-load-more { width: 100%; margin-top: 8px; }
 
 /* Left panel is the library; queue rows are keyboard and drag friendly. */
-#playlist-panel { border-radius: 14px; }
+#playlist-panel {
+  border-radius: 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+#playlist-panel::-webkit-scrollbar { width: 4px; height: 0; }
+#playlist-panel::-webkit-scrollbar-track,
+#playlist-panel::-webkit-scrollbar-corner { background: transparent; }
+#playlist-panel #queue-pane,
+#playlist-panel #queue-list,
+#playlist-panel #pl-pane,
+#playlist-panel #pl-list { min-width: 0; max-width: 100%; }
+#playlist-panel #queue-list { overflow: hidden; }
 .panel-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .panel-tab { border-radius: 7px; padding-inline: 8px; }
 .queue-item,
 .mini-queue-item { border-radius: 7px; }
+.queue-item {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
 .queue-item[draggable="true"] { cursor: grab; }
 .queue-item.queue-dragging { opacity: .42; cursor: grabbing; }
 .queue-item.queue-drop-before { box-shadow: inset 0 2px 0 rgba(var(--fc-accent-rgb), .9); }
@@ -170,11 +189,119 @@ body.empty-home-active .home-visual { animation: none; }
 .queue-drag-handle {
   width: 20px;
   height: 28px;
+  flex: 0 0 20px;
   border: 0;
   background: transparent;
   color: rgba(255,255,255,.34);
   cursor: grab;
   font-size: 15px;
+}
+.queue-item .queue-main-hit {
+  max-width: 100%;
+  overflow: hidden;
+  transition: padding-right .15s ease;
+}
+.queue-main-hit .qi-info {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  flex-direction: column;
+  align-items: stretch;
+  line-height: 1.25;
+}
+.queue-main-hit .qi-name,
+.queue-main-hit .qi-sub {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-main-hit .qi-sub { margin-top: 3px; }
+#playlist-panel .queue-item .qi-act {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 8px;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+#playlist-panel .queue-item:hover .qi-act,
+#playlist-panel .queue-item:focus-within .qi-act {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+#playlist-panel .queue-item:hover .queue-main-hit,
+#playlist-panel .queue-item:focus-within .queue-main-hit { padding-right: 108px; }
+
+#playlist-panel #pl-list { padding-bottom: 12px; }
+#playlist-panel .pl-inline-detail,
+html.control-glass-svg-ok #playlist-panel .pl-inline-detail {
+  min-width: 0;
+  margin-top: -1px;
+  padding-bottom: 10px;
+  overflow: visible;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+#playlist-panel .pl-detail-sticky {
+  top: -18px;
+  margin: 0 0 8px;
+  padding: 8px 0;
+  border-radius: 0;
+  border-bottom: 1px solid rgba(255,255,255,.075);
+  background: rgba(6,7,10,.96) !important;
+  box-shadow: 0 10px 20px rgba(0,0,0,.18);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+#playlist-panel .pl-detail-actions {
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+#playlist-panel .pl-detail-play { order: 1; }
+#playlist-panel .pl-detail-actions > .pl-owner-action,
+#playlist-panel .pl-detail-actions > .v150-owner-tools { order: 2; }
+#playlist-panel .pl-detail-collapse-btn {
+  order: 3;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#playlist-panel .pl-detail-collapse-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#playlist-panel .pl-detail-list {
+  min-width: 0;
+  overflow: hidden;
+  padding-bottom: 14px;
 }
 #playlist-panel .queue-head-act .fx-mini-btn,
 #queue-pane .queue-toolbar .fx-mini-btn {

@@ -2342,7 +2342,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
   </div>
   <div id="pl-pane" style="display:none">
     <div class="queue-toolbar">
-      <div class="queue-chip">登录后显示网易云 / QQ 歌单</div>
+      <div class="queue-chip">登录后显示网易云歌单</div>
       <button class="fx-mini-btn ghost" onclick="refreshUserPlaylists(true)" style="height:26px;padding:0 10px;font-size:11px">刷新</button>
     </div>
     <div id="pl-list" style="margin-top:6px"></div>
@@ -2700,7 +2700,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">发现新版本</div>
-          <div id="update-modal-version" class="update-version">v1.5.1</div>
+          <div id="update-modal-version" class="update-version">v1.5.2</div>
         </div>
         <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
@@ -2977,8 +2977,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.5.1',
-  version: '1.5.1',
+  currentVersion: '1.5.2',
+  version: '1.5.2',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -20445,8 +20445,6 @@ function playlistPanelDetailHtml(pl, provider) {
   if (playlistPanelDetailState.key !== key) return '';
   var tracks = playlistPanelDetailState.tracks || [];
   var loading = playlistPanelDetailState.loading;
-  var cover = pl && pl.cover ? (provider === 'qq' ? pl.cover : (pl.cover + '?param=96y96')) : '';
-  var img = cover ? '<img class="pl-detail-cover" src="' + escHtml(cover) + '" alt="" decoding="async" onerror="this.style.opacity=0.2">' : '<div class="pl-detail-cover"></div>';
   var renderLimit = loading ? 0 : Math.max(PLAYLIST_DETAIL_INITIAL_RENDER, playlistPanelDetailState.renderLimit || PLAYLIST_DETAIL_INITIAL_RENDER);
   renderLimit = Math.min(tracks.length, renderLimit);
   var visibleTracks = loading ? [] : tracks.slice(0, renderLimit);
@@ -20469,8 +20467,7 @@ function playlistPanelDetailHtml(pl, provider) {
   }
   return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '">' +
     '<div class="pl-detail-sticky">' +
-      '<div class="pl-detail-head">' + img + '<div style="flex:1;min-width:0"><div class="pl-detail-title">' + escHtml(pl.name || '歌单详情') + '</div><div class="pl-detail-sub">' + escHtml((pl.trackCount || tracks.length || 0) + ' 首 · ' + (pl.creator || (provider === 'qq' ? 'QQ 音乐' : '网易云音乐'))) + '</div></div><div class="pl-detail-count">' + (loading ? '载入中' : (renderLimit + '/' + tracks.length)) + '</div></div>' +
-      '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + '"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>播放歌单</button><button class="fx-mini-btn ghost pl-detail-top-btn" type="button" data-pl-detail-top="1">回到顶部</button></div>' +
+      '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + '"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>播放歌单</button><button class="fx-mini-btn ghost pl-detail-collapse-btn" type="button" data-pl-detail-collapse="1" title="收起详情" aria-label="收起详情"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button></div>' +
     '</div>' +
     '<div class="pl-detail-list">' + rows + '</div>' +
   '</div>';
@@ -20478,11 +20475,17 @@ function playlistPanelDetailHtml(pl, provider) {
 function renderPlaylistPanelDetailState() {
   renderUserPlaylistsList();
 }
-function scrollPlaylistPanelToTop() {
-  var panel = document.getElementById('playlist-panel');
-  if (!panel) return;
-  try { panel.scrollTo({ top: 0, behavior: 'smooth' }); }
-  catch (e) { panel.scrollTop = 0; }
+function collapsePlaylistPanelDetail() {
+  var nextToken = Number(playlistPanelDetailState && playlistPanelDetailState.token || 0) + 1;
+  playlistPanelDetailState = {
+    key: '',
+    loading: false,
+    playlist: null,
+    tracks: [],
+    token: nextToken,
+    renderLimit: PLAYLIST_DETAIL_INITIAL_RENDER,
+  };
+  renderPlaylistPanelDetailState();
 }
 function scrollPlaylistPanelDetailIntoView(key) {
   var panel = document.getElementById('playlist-panel');
@@ -20508,12 +20511,8 @@ async function openPlaylistPanelDetail(provider, pid, title) {
   provider = provider === 'qq' ? 'qq' : 'netease';
   var key = playlistPanelKey(provider, pid);
   var pl = userPlaylists.find(function(item){ return playlistPanelKey(item.provider === 'qq' ? 'qq' : 'netease', item.id) === key; }) || { id: pid, provider: provider, name: title || '歌单详情' };
-  if (playlistPanelDetailState.key === key && !playlistPanelDetailState.loading && playlistPanelDetailState.tracks.length) {
-    playlistPanelDetailState.key = '';
-    playlistPanelDetailState.tracks = [];
-    playlistPanelDetailState.playlist = null;
-    playlistPanelDetailState.renderLimit = PLAYLIST_DETAIL_INITIAL_RENDER;
-    renderPlaylistPanelDetailState();
+  if (playlistPanelDetailState.key === key) {
+    collapsePlaylistPanelDetail();
     return;
   }
   var token = ++playlistPanelDetailState.token;
@@ -20686,11 +20685,11 @@ document.getElementById('pl-list').addEventListener('click', function(e){
     growPlaylistPanelDetailRenderLimit();
     return;
   }
-  var detailTop = e.target && e.target.closest ? e.target.closest('[data-pl-detail-top]') : null;
-  if (detailTop) {
+  var detailCollapse = e.target && e.target.closest ? e.target.closest('[data-pl-detail-collapse]') : null;
+  if (detailCollapse) {
     e.preventDefault();
     e.stopPropagation();
-    scrollPlaylistPanelToTop();
+    collapsePlaylistPanelDetail();
     return;
   }
   var playDetail = e.target && e.target.closest ? e.target.closest('[data-pl-detail-play]') : null;

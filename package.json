@@ -1,7 +1,7 @@
 {
   "name": "mineradio",
   "productName": "Mineradio",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Mineradio Windows 桌面音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "dh666i",
   "license": "GPL-3.0-only",
@@ -125,7 +125,8 @@
   "overrides": {
     "NeteaseCloudMusicApi": {
       "music-metadata": "11.14.0"
-    }
+    },
+    "body-parser": "1.20.6"
   },
   "devDependencies": {
     "electron": "^42.4.1",

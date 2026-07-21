@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFile, spawn } = require('child_process');
+const windowPlacement = require('../lib/window-placement');
 
 let mainWindow = null;
 let tray = null;
@@ -31,6 +32,9 @@ let explicitFullscreenGeneration = 0;
 let explicitFullscreenPhase = 'idle';
 let explicitFullscreenEscapeSerial = 0;
 let mainWindowStateTimer = null;
+let mainWindowPlacementTimer = null;
+let mainWindowLastDisplayId = null;
+let mainWindowLastPlacement = null;
 let backgroundRuntimePolicy = 'auto';
 const registeredGlobalHotkeys = new Map();
 let systemMediaState = {
@@ -159,6 +163,9 @@ const NETEASE_LOGIN_PARTITION = 'persist:mineradio-netease-login';
 const NETEASE_LOGIN_URL = 'https://music.163.com/#/login';
 const QQ_LOGIN_PARTITION = 'persist:mineradio-qqmusic-login';
 const QQ_LOGIN_URL = 'https://y.qq.com/n/ryqq/profile';
+const MAIN_WINDOW_PLACEMENT_FILE = 'window-state.json';
+const MAIN_WINDOW_PLACEMENT_VERSION = 1;
+const MAIN_WINDOW_PLACEMENT_SAVE_DELAY = 240;
 
 function configureIndependentUserDataPath() {
   const overridePath = String(process.env.MINERADIO_USER_DATA_DIR || '').trim();
@@ -573,6 +580,93 @@ function rectsOverlapOnY(a, b) {
   return aBottom > bTop && bBottom > aTop;
 }
 
+function mainWindowPlacementPath() {
+  try { return path.join(app.getPath('userData'), MAIN_WINDOW_PLACEMENT_FILE); }
+  catch (_) { return ''; }
+}
+
+function normalizeMainWindowPlacement(value) {
+  const bounds = windowPlacement.normalizeBounds(value && value.bounds);
+  if (!bounds) return null;
+  return {
+    version: MAIN_WINDOW_PLACEMENT_VERSION,
+    bounds,
+    maximized: !!(value && value.maximized),
+    displayId: value && value.displayId != null ? value.displayId : null,
+    displayWorkArea: windowPlacement.normalizeBounds(value && value.displayWorkArea),
+    scaleFactor: Math.max(0.5, Math.min(8, Number(value && value.scaleFactor) || 1)),
+  };
+}
+
+function readMainWindowPlacement() {
+  const filePath = mainWindowPlacementPath();
+  if (!filePath) return null;
+  try {
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).size > 16 * 1024) return null;
+    const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (Number(value && value.version) !== MAIN_WINDOW_PLACEMENT_VERSION) return null;
+    return normalizeMainWindowPlacement(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+function captureMainWindowPlacement(win) {
+  if (!win || win.isDestroyed() || win.isMinimized()) return mainWindowLastPlacement;
+  if (win.isFullScreen() || htmlFullscreenActive || windowFullscreenActive || explicitFullscreenTarget === true) {
+    return mainWindowLastPlacement;
+  }
+  const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const placement = normalizeMainWindowPlacement({
+    bounds,
+    maximized: win.isMaximized(),
+    displayId: display && display.id,
+    displayWorkArea: display && display.workArea,
+    scaleFactor: display && display.scaleFactor,
+  });
+  if (placement) {
+    mainWindowLastDisplayId = placement.displayId;
+    mainWindowLastPlacement = placement;
+  }
+  return placement;
+}
+
+function writeMainWindowPlacement(win) {
+  if (!win || win.isDestroyed()) return false;
+  const placement = captureMainWindowPlacement(win);
+  const filePath = mainWindowPlacementPath();
+  if (!placement || !filePath) return false;
+  const temporaryPath = filePath + '.tmp-' + process.pid;
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(temporaryPath, JSON.stringify(placement, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(temporaryPath, filePath);
+    return true;
+  } catch (e) {
+    try { if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath); } catch (_) {}
+    console.warn('Window placement save skipped:', e.message);
+    return false;
+  }
+}
+
+function scheduleMainWindowPlacementSave(win, delay = MAIN_WINDOW_PLACEMENT_SAVE_DELAY) {
+  if (!win || win.isDestroyed()) return;
+  if (mainWindowPlacementTimer) clearTimeout(mainWindowPlacementTimer);
+  mainWindowPlacementTimer = setTimeout(() => {
+    mainWindowPlacementTimer = null;
+    writeMainWindowPlacement(win);
+  }, Math.max(80, Number(delay) || MAIN_WINDOW_PLACEMENT_SAVE_DELAY));
+}
+
+function flushMainWindowPlacementSave(win) {
+  if (mainWindowPlacementTimer) {
+    clearTimeout(mainWindowPlacementTimer);
+    mainWindowPlacementTimer = null;
+  }
+  writeMainWindowPlacement(win);
+}
+
 function getDisplayState(win) {
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
@@ -771,7 +865,7 @@ function adaptiveWindowBounds(owner, preferredWidth, preferredHeight, designMinW
   };
 }
 
-function applyAdaptiveWindowConstraints(win, options = {}) {
+function updateAdaptiveWindowMinimumSize(win, options = {}) {
   if (!win || win.isDestroyed()) return;
   const display = displayForWindow(win);
   const area = display.workArea;
@@ -785,33 +879,71 @@ function applyAdaptiveWindowConstraints(win, options = {}) {
     Math.min(options.minHeight || MIN_WINDOWED_HEIGHT, Math.max(240, area.height - margin * 2)),
   );
   win.setMinimumSize(Math.round(minWidth), Math.round(minHeight));
-  if (win.isMaximized() || win.isFullScreen()) return;
+  return {
+    display,
+    minWidth: Math.round(minWidth),
+    minHeight: Math.round(minHeight),
+  };
+}
 
+function repairAdaptiveWindowPlacement(win, options = {}) {
+  if (!win || win.isDestroyed() || win.isMaximized() || win.isFullScreen()) return false;
   const bounds = win.getBounds();
-  const width = Math.min(Math.max(bounds.width, minWidth), area.width);
-  const height = Math.min(Math.max(bounds.height, minHeight), area.height);
-  const maxX = area.x + area.width - width;
-  const maxY = area.y + area.height - height;
-  const x = Math.min(Math.max(bounds.x, area.x), maxX);
-  const y = Math.min(Math.max(bounds.y, area.y), maxY);
-  if (x !== bounds.x || y !== bounds.y || width !== bounds.width || height !== bounds.height) {
-    win.setBounds({ x, y, width, height }, false);
+  const savedBounds = windowPlacement.normalizeBounds(options.savedBounds) || bounds;
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  const resolved = windowPlacement.resolveWindowPlacement({
+    saved: {
+      bounds: savedBounds,
+      displayId: options.displayId,
+      displayWorkArea: options.displayWorkArea,
+    },
+    defaultBounds: bounds,
+    displays,
+    primaryDisplayId: primary && primary.id,
+    minWidth: options.minWidth,
+    minHeight: options.minHeight,
+  });
+  const next = resolved && resolved.bounds;
+  if (!next) return false;
+  const changed = next.x !== bounds.x
+    || next.y !== bounds.y
+    || next.width !== bounds.width
+    || next.height !== bounds.height;
+  if (changed) {
+    win.setBounds(next, false);
+  }
+  return changed;
+}
+
+function applyAdaptiveWindowConstraints(win, options = {}) {
+  const constraints = updateAdaptiveWindowMinimumSize(win, options);
+  if (!constraints) return;
+  if (options.repair) {
+    repairAdaptiveWindowPlacement(win, {
+      ...options,
+      minWidth: constraints.minWidth,
+      minHeight: constraints.minHeight,
+    });
   }
 }
 
 function registerAdaptiveLoginWindow(win, options) {
   if (!win || win.isDestroyed()) return;
   adaptiveLoginWindows.set(win.id, { win, options: { ...options } });
-  const apply = () => applyAdaptiveWindowConstraints(win, options);
-  win.on('move', apply);
-  win.on('resize', apply);
+  const applyMinimum = () => applyAdaptiveWindowConstraints(win, { ...options, repair: false });
+  win.on('move', applyMinimum);
+  win.on('resize', applyMinimum);
   win.once('closed', () => adaptiveLoginWindows.delete(win.id));
-  apply();
+  applyAdaptiveWindowConstraints(win, { ...options, repair: true });
 }
 
-function refreshAdaptiveLoginWindows() {
+function refreshAdaptiveLoginWindows(options = {}) {
   for (const entry of adaptiveLoginWindows.values()) {
-    applyAdaptiveWindowConstraints(entry.win, entry.options);
+    applyAdaptiveWindowConstraints(entry.win, {
+      ...entry.options,
+      repair: !!options.repair,
+    });
   }
 }
 
@@ -1543,9 +1675,9 @@ async function clearNeteaseMusicLoginSession(reason = 'logout') {
   });
 }
 
-function getAdaptiveMainMinimumSize(win) {
-  const display = displayForWindow(win);
-  const area = display.workArea;
+function getAdaptiveMainMinimumSizeForDisplay(display) {
+  const area = display && display.workArea;
+  if (!area) return { width: MIN_WINDOWED_WIDTH, height: MIN_WINDOWED_HEIGHT };
   const availableWidth = Math.max(320, area.width - 16);
   const availableHeight = Math.max(240, area.height - 16);
   const width = Math.max(
@@ -1559,13 +1691,98 @@ function getAdaptiveMainMinimumSize(win) {
   return { width: Math.round(width), height: Math.round(height) };
 }
 
+function getAdaptiveMainMinimumSize(win) {
+  return getAdaptiveMainMinimumSizeForDisplay(displayForWindow(win));
+}
+
 function applyAdaptiveMainWindowConstraints(win) {
   const minimum = getAdaptiveMainMinimumSize(win);
-  applyAdaptiveWindowConstraints(win, {
+  const constraints = updateAdaptiveWindowMinimumSize(win, {
     minWidth: minimum.width,
     minHeight: minimum.height,
     margin: 8,
   });
+  if (!constraints) return;
+}
+
+function resolveMainWindowPlacementState(saved, defaultBounds = getWindowedBounds()) {
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  const initial = windowPlacement.resolveWindowPlacement({
+    saved,
+    defaultBounds,
+    displays,
+    primaryDisplayId: primary && primary.id,
+    minWidth: MIN_COMPACT_WIDTH,
+    minHeight: MIN_COMPACT_HEIGHT,
+  });
+  const display = displays.find((candidate) => (
+    candidate && initial.displayId != null && String(candidate.id) === String(initial.displayId)
+  ))
+    || primary
+    || displays[0];
+  const minimum = getAdaptiveMainMinimumSizeForDisplay(display);
+  const resolved = windowPlacement.resolveWindowPlacement({
+    saved,
+    defaultBounds,
+    displays,
+    primaryDisplayId: primary && primary.id,
+    minWidth: minimum.width,
+    minHeight: minimum.height,
+  });
+  return {
+    ...resolved,
+    displayWorkArea: display && display.workArea,
+    scaleFactor: display && display.scaleFactor,
+    minimum,
+  };
+}
+
+function restoreMainWindowPlacement() {
+  return resolveMainWindowPlacementState(readMainWindowPlacement(), getWindowedBounds());
+}
+
+function persistMainWindowPlacementSnapshot(win) {
+  const placement = captureMainWindowPlacement(win);
+  if (placement) {
+    mainWindowLastPlacement = placement;
+    mainWindowLastDisplayId = placement.displayId;
+  }
+  return placement;
+}
+
+function repairMainWindowPlacement(win, options = {}) {
+  if (!win || win.isDestroyed() || win.isMaximized() || win.isFullScreen()) return false;
+  const displays = screen.getAllDisplays();
+  const currentBounds = windowPlacement.normalizeBounds(win.getBounds());
+  const currentReachable = currentBounds && windowPlacement.isDragStripReachable(currentBounds, displays);
+  const useSavedPlacement = !!options.useSavedPlacement || !currentReachable;
+  if (!useSavedPlacement) {
+    persistMainWindowPlacementSnapshot(win);
+    scheduleMainWindowPlacementSave(win);
+    return false;
+  }
+  const sourcePlacement = mainWindowLastPlacement || { bounds: currentBounds };
+  const preferredDisplayId = sourcePlacement && sourcePlacement.displayId != null
+    ? sourcePlacement.displayId
+    : mainWindowLastDisplayId;
+  const preferredDisplay = displays.find((display) => (
+    display && preferredDisplayId != null && String(display.id) === String(preferredDisplayId)
+  ));
+  const minimum = getAdaptiveMainMinimumSizeForDisplay(preferredDisplay || displayForWindow(win));
+  const changed = repairAdaptiveWindowPlacement(win, {
+    minWidth: minimum.width,
+    minHeight: minimum.height,
+    displayId: preferredDisplayId,
+    displayWorkArea: sourcePlacement && sourcePlacement.displayWorkArea,
+    savedBounds: sourcePlacement && sourcePlacement.bounds,
+  });
+  const display = displayForWindow(win);
+  if (display) mainWindowLastDisplayId = display.id;
+  persistMainWindowPlacementSnapshot(win);
+  scheduleMainWindowPlacementSave(win);
+  if (changed) scheduleWindowStateSend(win);
+  return changed;
 }
 
 function getWindowedBounds(win) {
@@ -1618,6 +1835,7 @@ function applyWindowedBounds(win) {
   win.setMinimumSize(minimum.width, minimum.height);
   win.setBounds(getWindowedBounds(win), false);
   applyAdaptiveMainWindowConstraints(win);
+  persistMainWindowPlacementSnapshot(win);
   sendWindowState(win);
 }
 
@@ -1635,9 +1853,14 @@ function toggleFullscreen(win) {
 
 function captureExplicitFullscreenRestoreState(win) {
   if (!win || win.isDestroyed()) return null;
+  const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
+  const display = screen.getDisplayMatching(bounds);
   return {
-    bounds: win.isMaximized() ? win.getNormalBounds() : win.getBounds(),
+    bounds,
     maximized: win.isMaximized(),
+    displayId: display && display.id,
+    displayWorkArea: display && display.workArea,
+    scaleFactor: display && display.scaleFactor,
   };
 }
 
@@ -1657,14 +1880,20 @@ function restoreExplicitFullscreenWindow(win, generation) {
     sendWindowState(win);
     return true;
   }
-  const minimum = getAdaptiveMainMinimumSize(win);
+  const resolved = resolveMainWindowPlacementState(restore, getWindowedBounds(win));
+  const minimum = resolved.minimum;
   win.setMinimumSize(minimum.width, minimum.height);
   if (restore.maximized) {
-    if (!win.isMaximized()) win.maximize();
+    if (!win.isMaximized()) {
+      win.setBounds(resolved.bounds, false);
+      win.maximize();
+    }
   } else {
     if (win.isMaximized()) win.unmaximize();
-    if (restore.bounds) win.setBounds(restore.bounds, false);
+    win.setBounds(resolved.bounds, false);
     applyAdaptiveMainWindowConstraints(win);
+    persistMainWindowPlacementSnapshot(win);
+    scheduleMainWindowPlacementSave(win);
   }
   sendWindowState(win);
   return true;
@@ -2557,8 +2786,16 @@ async function createWindow() {
   await waitForServer(localServer);
   finalizeLegacyCredentialMigration(stagedLegacyCredentials);
 
-  const initialBounds = getWindowedBounds();
-  const initialMinimum = getAdaptiveMainMinimumSize();
+  const initialPlacement = restoreMainWindowPlacement();
+  const initialBounds = initialPlacement.bounds;
+  const initialMinimum = initialPlacement.minimum;
+  mainWindowLastDisplayId = initialPlacement.displayId;
+  mainWindowLastPlacement = normalizeMainWindowPlacement({
+    bounds: initialBounds,
+    maximized: initialPlacement.maximized,
+    displayId: initialPlacement.displayId,
+    displayWorkArea: initialPlacement.displayWorkArea,
+  });
 
   mainWindow = new BrowserWindow({
     ...initialBounds,
@@ -2581,6 +2818,7 @@ async function createWindow() {
       backgroundThrottling: backgroundRuntimePolicy !== 'keep',
     },
   });
+  if (initialPlacement.maximized) mainWindow.maximize();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(String(url || ''))) shell.openExternal(url).catch(() => {});
@@ -2614,27 +2852,49 @@ async function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
+    persistMainWindowPlacementSnapshot(mainWindow);
+    writeMainWindowPlacement(mainWindow);
     mainWindow.show();
     updateTaskbarMediaButtons();
     sendWindowState(mainWindow);
   });
 
-  mainWindow.on('maximize', () => sendWindowState(mainWindow));
-  mainWindow.on('unmaximize', () => sendWindowState(mainWindow));
+  mainWindow.on('maximize', () => {
+    persistMainWindowPlacementSnapshot(mainWindow);
+    scheduleMainWindowPlacementSave(mainWindow);
+    sendWindowState(mainWindow);
+  });
+  mainWindow.on('unmaximize', () => {
+    repairMainWindowPlacement(mainWindow);
+    scheduleMainWindowPlacementSave(mainWindow);
+    sendWindowState(mainWindow);
+  });
   mainWindow.on('minimize', () => sendWindowState(mainWindow));
-  mainWindow.on('restore', () => sendWindowState(mainWindow));
+  mainWindow.on('restore', () => {
+    repairMainWindowPlacement(mainWindow);
+    scheduleMainWindowPlacementSave(mainWindow);
+    sendWindowState(mainWindow);
+  });
   mainWindow.on('show', () => sendWindowState(mainWindow));
   mainWindow.on('hide', () => sendWindowState(mainWindow));
   mainWindow.on('focus', () => sendWindowState(mainWindow));
   mainWindow.on('blur', () => sendWindowState(mainWindow));
   mainWindow.on('move', () => {
     applyAdaptiveMainWindowConstraints(mainWindow);
+    persistMainWindowPlacementSnapshot(mainWindow);
+    scheduleMainWindowPlacementSave(mainWindow);
     scheduleWindowStateSend(mainWindow);
   });
-  mainWindow.on('resize', () => scheduleWindowStateSend(mainWindow));
+  mainWindow.on('resize', () => {
+    applyAdaptiveMainWindowConstraints(mainWindow);
+    persistMainWindowPlacementSnapshot(mainWindow);
+    scheduleMainWindowPlacementSave(mainWindow);
+    scheduleWindowStateSend(mainWindow);
+  });
   mainWindow.on('close', (event) => {
     if (isAppQuitting) return;
     event.preventDefault();
+    flushMainWindowPlacementSave(mainWindow);
     mainWindow.hide();
     sendWindowState(mainWindow);
     showTrayNoticeOnce();
@@ -2643,6 +2903,10 @@ async function createWindow() {
     if (mainWindowStateTimer) {
       clearTimeout(mainWindowStateTimer);
       mainWindowStateTimer = null;
+    }
+    if (mainWindowPlacementTimer) {
+      clearTimeout(mainWindowPlacementTimer);
+      mainWindowPlacementTimer = null;
     }
     closeOverlayWindows();
     mainWindow = null;
@@ -2708,8 +2972,9 @@ if (!gotSingleInstanceLock) {
     screen.on('display-metrics-changed', () => {
       positionDesktopLyricsWindow();
       positionWallpaperWindow();
+      repairMainWindowPlacement(mainWindow, { useSavedPlacement: true });
       applyAdaptiveMainWindowConstraints(mainWindow);
-      refreshAdaptiveLoginWindows();
+      refreshAdaptiveLoginWindows({ repair: true });
       scheduleWindowStateSend(mainWindow);
     });
     screen.on('display-added', () => {
@@ -2718,8 +2983,9 @@ if (!gotSingleInstanceLock) {
       scheduleWindowStateSend(mainWindow);
     });
     screen.on('display-removed', () => {
+      repairMainWindowPlacement(mainWindow, { useSavedPlacement: true });
       applyAdaptiveMainWindowConstraints(mainWindow);
-      refreshAdaptiveLoginWindows();
+      refreshAdaptiveLoginWindows({ repair: true });
       scheduleWindowStateSend(mainWindow);
     });
     createTray();
@@ -2737,6 +3003,7 @@ if (!gotSingleInstanceLock) {
 
   app.on('before-quit', () => {
     isAppQuitting = true;
+    flushMainWindowPlacementSave(mainWindow);
     unregisterMineradioGlobalHotkeys();
     closeOverlayWindows();
     if (localServer && localServer.close) localServer.close();
