@@ -1357,7 +1357,7 @@
   function updateSettingsVersion() {
     var node = byId('settings-version');
     if (!node) return;
-    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.2';
+    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.3';
     node.textContent = 'Mineradio v' + current + (updatePreviewState && updatePreviewState.checkStatus === 'available' ? (' · 可更新至 v' + updatePreviewState.version) : '');
   }
   function activateSettingsTab(name, focus) {

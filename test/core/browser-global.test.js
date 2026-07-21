@@ -12,6 +12,7 @@ test('core scripts expose the stable MineradioCore browser namespace', () => {
     'version.js',
     'queue-session.js',
     'lyrics.js',
+    'lyric-layout.js',
     'network-errors.js',
   ];
 
@@ -23,5 +24,6 @@ test('core scripts expose the stable MineradioCore browser namespace', () => {
   assert.equal(typeof context.MineradioCore.version.compareVersions, 'function');
   assert.equal(typeof context.MineradioCore.queueSession.restoreQueueSnapshot, 'function');
   assert.equal(typeof context.MineradioCore.lyrics.alignTranslatedLyrics, 'function');
+  assert.equal(typeof context.MineradioCore.lyricLayout.buildLyricLayout, 'function');
   assert.equal(typeof context.MineradioCore.networkErrors.classifyNetworkError, 'function');
 });

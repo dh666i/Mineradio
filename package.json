@@ -1,7 +1,7 @@
 {
   "name": "mineradio",
   "productName": "Mineradio",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Mineradio Windows 桌面音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "dh666i",
   "license": "GPL-3.0-only",
@@ -20,7 +20,7 @@
     "test": "npm run test:core && npm run test:integration",
     "test:core": "node --test test/core/*.test.js",
     "test:integration": "node --test test/integration/*.test.js",
-    "check:core": "node --check public/js/core/version.js && node --check public/js/core/queue-session.js && node --check public/js/core/lyrics.js && node --check public/js/core/network-errors.js && npm run test:core",
+    "check:core": "node --check public/js/core/version.js && node --check public/js/core/queue-session.js && node --check public/js/core/lyrics.js && node --check public/js/core/lyric-layout.js && node --check public/js/core/network-errors.js && npm run test:core",
     "check:ui": "node scripts/check-ui-source.js",
     "check:desktop": "node --check desktop/main.js && node --check desktop/preload.js && node --check desktop/overlay-preload.js",
     "check:all": "node --check server.js && npm run check:desktop && npm run check:ui && npm test",

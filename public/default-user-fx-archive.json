@@ -36,6 +36,7 @@
     "lyricLetterSpacing": 0,
     "lyricLineHeight": 1,
     "lyricWeight": 900,
+    "lyricLayoutMode": "auto",
     "visualTintMode": "auto",
     "visualTintColor": "#9db8cf",
     "uiAccentColor": "#ffffff",

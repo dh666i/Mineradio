@@ -12,6 +12,7 @@
 <script src="js/core/version.js"></script>
 <script src="js/core/queue-session.js"></script>
 <script src="js/core/lyrics.js"></script>
+<script src="js/core/lyric-layout.js"></script>
 <script src="js/core/network-errors.js"></script>
 <script src="js/core/netease-experience.js"></script>
 <script src="js/core/audio-settings.js"></script>
@@ -2184,6 +2185,11 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
       <div class="fx-slider"><label>行距</label><input id="fx-lyriclineheight" type="range" min="0.86" max="1.35" step="0.01"><output></output></div>
       <div class="fx-slider"><label>字重</label><input id="fx-lyricweight" type="range" min="500" max="900" step="50"><output></output></div>
       <div class="fx-section-label">歌词布局</div>
+      <div class="fx-seg" id="lyric-layout-seg">
+        <button type="button" data-lyric-layout="auto" onclick="setLyricLayoutMode('auto')">自动</button>
+        <button type="button" data-lyric-layout="focus" onclick="setLyricLayoutMode('focus')">单句</button>
+        <button type="button" data-lyric-layout="three" onclick="setLyricLayoutMode('three')">三句</button>
+      </div>
       <div class="fx-slider"><label>歌词大小</label><input id="fx-lyricscale" type="range" min="0.35" max="1.65" step="0.01"><output></output></div>
       <div class="fx-slider"><label>水平位置</label><input id="fx-lyricx" type="range" min="-2.0" max="2.0" step="0.01"><output></output></div>
       <div class="fx-slider"><label>垂直位置</label><input id="fx-lyricy" type="range" min="-1.2" max="1.35" step="0.01"><output></output></div>
@@ -2700,7 +2706,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">发现新版本</div>
-          <div id="update-modal-version" class="update-version">v1.5.2</div>
+          <div id="update-modal-version" class="update-version">v1.5.3</div>
         </div>
         <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
@@ -2977,8 +2983,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.5.2',
-  version: '1.5.2',
+  currentVersion: '1.5.3',
+  version: '1.5.3',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -3454,6 +3460,13 @@ function maybeAnnounceDjMode() {
   }
 }
 
+var lyricLayoutCore = window.MineradioCore && window.MineradioCore.lyricLayout;
+function normalizeLyricLayoutMode(value) {
+  return lyricLayoutCore && lyricLayoutCore.normalizeLayoutMode
+    ? lyricLayoutCore.normalizeLayoutMode(value)
+    : (/^(auto|focus|three)$/.test(String(value || '')) ? String(value) : 'auto');
+}
+
 // fx 状态: 预设 + 主滑块 + 开关 + 三态
 var fxDefaults = {
   preset: 0,            // 0=emily cover, 1=tunnel, 2=orbit, 3=void, 4=vinyl, 5=wallpaper, 6=skull
@@ -3480,6 +3493,7 @@ var fxDefaults = {
   lyricLetterSpacing: 0,
   lyricLineHeight: 1.0,
   lyricWeight: 900,
+  lyricLayoutMode: 'auto',
   visualTintMode: 'auto',
   visualTintColor: '#9db8cf',
   uiAccentColor: '#ffffff',
@@ -3563,6 +3577,7 @@ var PACKAGED_DEFAULT_FX_SNAPSHOT = Object.freeze({
   lyricLetterSpacing: 0,
   lyricLineHeight: 1,
   lyricWeight: 900,
+  lyricLayoutMode: 'auto',
   visualTintMode: 'auto',
   visualTintColor: '#9db8cf',
   uiAccentColor: '#ffffff',
@@ -7496,6 +7511,8 @@ var stageLyrics = {
   outgoing: [],
   currentIdx: -1,
   currentText: '',
+  currentLayout: null,
+  layoutViewportKey: '',
   highBloom: 0,
   beatGlow: 0,
   glowFollowX: 0,
@@ -7530,6 +7547,7 @@ var lyricCameraTarget = new THREE.Vector3();
 var lyricLayoutBase = new THREE.Vector3();
 var lyricLayoutTarget = new THREE.Vector3();
 var lyricCoverWorldPos = new THREE.Vector3();
+var lyricViewportFitWorldPos = new THREE.Vector3();
 var lyricCoverWorldQuat = new THREE.Quaternion();
 var lyricBaseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 var lyricTiltEuler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -7579,7 +7597,7 @@ function getStageLyricLockBounds() {
   for (var i = 0; i < stageLyrics.outgoing.length; i++) take(stageLyrics.outgoing[i]);
   return { w: maxW || 5.4, h: maxH || 0.78 };
 }
-function lyricCameraLockFit(layoutScale, layoutX, layoutY, distance) {
+function lyricCameraLockFit(layoutScale, layoutX, layoutY, distance, maxScale) {
   if (!camera || !camera.isPerspectiveCamera) return 1;
   layoutScale = Math.max(0.1, layoutScale || 1);
   var fov = (camera.fov || 45) * Math.PI / 180;
@@ -7593,7 +7611,9 @@ function lyricCameraLockFit(layoutScale, layoutX, layoutY, distance) {
   var scaledW = Math.max(0.01, bounds.w * layoutScale);
   var scaledH = Math.max(0.01, bounds.h * layoutScale);
   var viewportFit = Math.min(1, safeW / scaledW, safeH / scaledH);
-  var lockScaleCap = Math.min(1, (skullSafe ? 0.94 : LYRIC_CAMERA_LOCK_MAX_SCALE) / layoutScale);
+  var requestedMaxScale = Number(maxScale);
+  if (!(requestedMaxScale > 0)) requestedMaxScale = LYRIC_CAMERA_LOCK_MAX_SCALE;
+  var lockScaleCap = Math.min(1, (skullSafe ? 0.94 : requestedMaxScale) / layoutScale);
   return clampRange(Math.min(viewportFit, lockScaleCap), skullSafe ? 0.36 : 0.42, 1);
 }
 // 兼容旧变量名以便其它代码不破坏
@@ -7867,6 +7887,7 @@ function readSavedLyricLayout() {
       lyricLetterSpacing: clampRange(Number(raw.lyricLetterSpacing) || 0, -0.04, 0.18),
       lyricLineHeight: clampRange(Number(raw.lyricLineHeight) || 1, 0.86, 1.35),
       lyricWeight: clampRange(Number(raw.lyricWeight) || 900, 500, 900),
+      lyricLayoutMode: normalizeLyricLayoutMode(raw.lyricLayoutMode),
       lyricGlow: raw.lyricGlow !== false,
       lyricGlowBeat: raw.lyricGlowBeat !== false,
       lyricGlowParticles: !!raw.lyricGlowParticles,
@@ -7957,6 +7978,7 @@ function saveLyricLayout() {
       lyricLetterSpacing: clampRange(Number(fx.lyricLetterSpacing) || 0, -0.04, 0.18),
       lyricLineHeight: clampRange(Number(fx.lyricLineHeight) || 1, 0.86, 1.35),
       lyricWeight: clampRange(Number(fx.lyricWeight) || 900, 500, 900),
+      lyricLayoutMode: normalizeLyricLayoutMode(fx.lyricLayoutMode),
       lyricGlow: !!fx.lyricGlow,
       lyricGlowBeat: !!fx.lyricGlowBeat,
       lyricGlowParticles: !!fx.lyricGlowParticles,
@@ -8765,103 +8787,262 @@ function splitLyricDisplayText(text) {
   return lines.length ? lines : [''];
 }
 
-function makeLyricMask(text) {
-  var canvas = document.createElement('canvas');
-  var W = 2048, H = 384;
-  canvas.width = W; canvas.height = H;
-  var ctx = canvas.getContext('2d');
-  var maxWidth = W - 190;
-  var fontSize = 128;
-  var lines = splitLyricDisplayText(text);
-  var lineScales = lines.map(function(_line, index){ return index === 0 ? 1 : 0.68; });
-  var widest = 1;
-  for (; fontSize >= 42; fontSize -= 4) {
-    widest = 1;
-    for (var li = 0; li < lines.length; li++) {
-      var measureSize = fontSize * lineScales[li];
-      ctx.font = lyricFontCss(measureSize);
-      widest = Math.max(widest, lyricMeasureText(ctx, lines[li], measureSize));
+function stageLyricViewport() {
+  var canvas = renderer && renderer.domElement;
+  return {
+    width: Math.max(1, canvas && canvas.clientWidth || window.innerWidth || 1),
+    height: Math.max(1, canvas && canvas.clientHeight || window.innerHeight || 1)
+  };
+}
+
+function stageLyricViewportKey(hasTimedLine) {
+  var viewport = stageLyricViewport();
+  var portrait = lyricLayoutCore && lyricLayoutCore.isPortraitViewport
+    ? lyricLayoutCore.isPortraitViewport(viewport)
+    : viewport.width / viewport.height < 1.05;
+  var orientation = portrait ? 'portrait' : 'landscape';
+  var mode = hasTimedLine && lyricLayoutCore && lyricLayoutCore.resolveLayoutMode
+    ? lyricLayoutCore.resolveLayoutMode(normalizeLyricLayoutMode(fx && fx.lyricLayoutMode), viewport)
+    : 'focus';
+  return mode + ':' + orientation;
+}
+
+function stageLyricPartsForLine(line) {
+  if (typeof getLyricDisplayParts === 'function') return getLyricDisplayParts(line || {});
+  line = line || {};
+  return { primary:String(line.originalText || line.text || '').replace(/\s+/g, ' ').trim(), secondary:'' };
+}
+
+function buildStageLyricLayout(currentIndex, fallbackText) {
+  var viewport = stageLyricViewport();
+  var portrait = lyricLayoutCore && lyricLayoutCore.isPortraitViewport
+    ? lyricLayoutCore.isPortraitViewport(viewport)
+    : viewport.width / viewport.height < 1.05;
+  var sourceLines;
+  var layoutIndex;
+  var requestedMode = normalizeLyricLayoutMode(fx && fx.lyricLayoutMode);
+  if (currentIndex >= 0 && Array.isArray(lyricsLines) && lyricsLines.length) {
+    layoutIndex = currentIndex;
+    sourceLines = lyricsLines.map(function(line){
+      var parts = stageLyricPartsForLine(line);
+      return { primary:parts.primary, secondary:'' };
+    });
+    var currentParts = stageLyricPartsForLine(lyricsLines[currentIndex]);
+    sourceLines[currentIndex] = { primary:currentParts.primary, secondary:currentParts.secondary };
+  } else {
+    layoutIndex = 0;
+    sourceLines = [{ primary:String(fallbackText || '').replace(/\s+/g, ' ').trim(), secondary:'' }];
+    requestedMode = 'focus';
+  }
+  if (!lyricLayoutCore || !lyricLayoutCore.buildLyricLayout) {
+    var fallbackParts = sourceLines[layoutIndex] || { primary:'', secondary:'' };
+    return {
+      mode:'focus', orientation:portrait ? 'portrait' : 'landscape',
+      items:[{
+        index:layoutIndex, role:'current', isCurrent:true, primary:fallbackParts.primary, secondary:fallbackParts.secondary,
+        visualLines:[{ text:fallbackParts.primary, sourceStart:0, sourceEnd:fallbackParts.primary.length, contentStart:0, contentEnd:fallbackParts.primary.length }],
+        secondaryLines:fallbackParts.secondary ? [{ text:fallbackParts.secondary, sourceStart:0, sourceEnd:fallbackParts.secondary.length, contentStart:0, contentEnd:fallbackParts.secondary.length }] : [],
+        opacity:1, highlight:true
+      }],
+      viewportKey:'focus:' + (portrait ? 'portrait' : 'landscape')
+    };
+  }
+  var measureCanvas = document.createElement('canvas');
+  var measureCtx = measureCanvas.getContext('2d');
+  var measureSize = portrait ? 112 : 118;
+  measureCtx.font = lyricFontCss(measureSize);
+  var layout = lyricLayoutCore.buildLyricLayout({
+    lines:sourceLines,
+    currentIndex:layoutIndex,
+    mode:requestedMode,
+    width:viewport.width,
+    height:viewport.height,
+    maxWidth:portrait ? 1020 : 1540,
+    measure:function(value){ return lyricMeasureText(measureCtx, value, measureSize); }
+  });
+  layout.viewportKey = layout.mode + ':' + layout.orientation;
+  return layout;
+}
+
+function stageLyricRowsFromLayout(layout, text) {
+  var rows = [];
+  var items = layout && Array.isArray(layout.items) ? layout.items : [];
+  if (!items.length) {
+    var fallbackLines = splitLyricDisplayText(text);
+    items = [{
+      role:'current', isCurrent:true, primary:fallbackLines[0] || '', secondary:fallbackLines[1] || '', opacity:1,
+      visualLines:[{ text:fallbackLines[0] || '', sourceStart:0, sourceEnd:(fallbackLines[0] || '').length, contentStart:0, contentEnd:(fallbackLines[0] || '').length }],
+      secondaryLines:fallbackLines[1] ? [{ text:fallbackLines[1], sourceStart:0, sourceEnd:fallbackLines[1].length, contentStart:0, contentEnd:fallbackLines[1].length }] : []
+    }];
+  }
+  items.forEach(function(item){
+    if (!item || (!item.isCurrent && Number(item.opacity) <= 0.01)) return;
+    var visualLines = Array.isArray(item.visualLines) ? item.visualLines : [];
+    visualLines.forEach(function(line){
+      if (!line || !String(line.text || '').trim()) return;
+      rows.push({
+        text:String(line.text),
+        kind:item.isCurrent ? 'current' : 'context',
+        role:item.role || (item.isCurrent ? 'current' : 'context'),
+        scale:item.isCurrent ? 1 : 0.50,
+        opacity:item.isCurrent ? 1 : clampRange(Number(item.opacity) || 0, 0, 1),
+        highlight:!!item.isCurrent,
+        contentStart:Number(line.contentStart) || 0,
+        contentEnd:Number(line.contentEnd) || 0,
+        charCount:Math.max(1, String(item.primary || '').length)
+      });
+    });
+    if (item.isCurrent && Array.isArray(item.secondaryLines)) {
+      item.secondaryLines.forEach(function(line){
+        if (!line || !String(line.text || '').trim()) return;
+        rows.push({
+          text:String(line.text), kind:'secondary', role:'secondary', scale:0.58, opacity:0.72, highlight:false,
+          contentStart:0, contentEnd:0, charCount:1
+        });
+      });
     }
-    if (widest <= maxWidth) break;
+  });
+  return rows.slice(0, 8);
+}
+
+function stageLyricRowGap(previous, current, fontSize) {
+  if (!previous) return 0;
+  if (previous.kind === 'current' && current.kind === 'current') return fontSize * 0.08 * lyricLineHeightFactor();
+  if (previous.kind === 'secondary' || current.kind === 'secondary') return fontSize * 0.07;
+  return fontSize * 0.22;
+}
+
+function drawStageLyricRow(ctx, mask, row, dx, dy, strokeOnly) {
+  var drawSize = row.drawSize;
+  ctx.font = lyricFontCss(drawSize);
+  var x = mask.width / 2 + (dx || 0);
+  var y = row.baseline + (dy || 0);
+  if (row.fitScaleX < 1) {
+    ctx.save();
+    ctx.translate(x, 0);
+    ctx.scale(row.fitScaleX, 1);
+    if (strokeOnly) lyricStrokeText(ctx, row.text, 0, y, drawSize);
+    else lyricFillText(ctx, row.text, 0, y, drawSize);
+    ctx.restore();
+  } else if (strokeOnly) {
+    lyricStrokeText(ctx, row.text, x, y, drawSize);
+  } else {
+    lyricFillText(ctx, row.text, x, y, drawSize);
   }
-  if (!lines.length) lines = [''];
-  widest = 1;
-  var primaryWidth = 1;
-  for (var mi = 0; mi < lines.length; mi++) {
-    var finalMeasureSize = fontSize * lineScales[mi];
-    ctx.font = lyricFontCss(finalMeasureSize);
-    var measuredLineWidth = lyricMeasureText(ctx, lines[mi], finalMeasureSize);
-    if (mi === 0) primaryWidth = measuredLineWidth;
-    widest = Math.max(widest, measuredLineWidth);
+}
+
+var STAGE_LYRIC_MASK_BASE_WIDTH = 2048;
+
+function makeLyricMask(text, layout) {
+  var canvas = document.createElement('canvas');
+  var compactLayout = layout && (layout.orientation === 'portrait' || layout.mode === 'three');
+  var W = compactLayout ? Math.round(STAGE_LYRIC_MASK_BASE_WIDTH * 0.75) : STAGE_LYRIC_MASK_BASE_WIDTH;
+  var ctx = canvas.getContext('2d');
+  var portrait = layout && layout.orientation === 'portrait';
+  var maxWidth = W - (compactLayout ? 210 : 190);
+  var fontSize = portrait ? 116 : 128;
+  var rows = stageLyricRowsFromLayout(layout, text);
+  if (!rows.length) rows = [{ text:'', kind:'current', role:'current', scale:1, opacity:1, highlight:true, contentStart:0, contentEnd:0, charCount:1 }];
+  var widestCurrent = 1;
+  for (; fontSize >= 54; fontSize -= 4) {
+    widestCurrent = 1;
+    rows.forEach(function(row){
+      if (row.kind === 'context') return;
+      var measureSize = fontSize * row.scale;
+      ctx.font = lyricFontCss(measureSize);
+      widestCurrent = Math.max(widestCurrent, lyricMeasureText(ctx, row.text, measureSize));
+    });
+    if (widestCurrent <= maxWidth) break;
   }
-  var width = Math.min(maxWidth, widest);
-  var fitScaleX = widest > maxWidth ? Math.max(0.68, maxWidth / widest) : 1;
-  if (fitScaleX < 1) width = Math.min(maxWidth, widest * fitScaleX);
-  primaryWidth = Math.min(maxWidth, primaryWidth * fitScaleX);
-  var lineHeight = fontSize * (lines.length > 1 ? 1.02 : 1.0) * lyricLineHeightFactor();
-  var blockH = fontSize + (lines.length - 1) * lineHeight;
-  var x = W / 2, y0 = H / 2 - blockH / 2 + fontSize * 0.82;
+  var blockH = 0;
+  var textWidth = 1;
+  var firstCurrent = null;
+  rows.forEach(function(row, index){
+    row.drawSize = fontSize * row.scale;
+    ctx.font = lyricFontCss(row.drawSize);
+    row.measuredWidth = Math.max(1, lyricMeasureText(ctx, row.text, row.drawSize));
+    row.fitScaleX = row.measuredWidth > maxWidth ? maxWidth / row.measuredWidth : 1;
+    row.renderedWidth = row.measuredWidth * row.fitScaleX;
+    row.gapBefore = stageLyricRowGap(rows[index - 1], row, fontSize);
+    row.cellHeight = Math.max(row.drawSize * 0.98, row.drawSize * lyricLineHeightFactor());
+    blockH += row.gapBefore + row.cellHeight;
+    textWidth = Math.max(textWidth, row.renderedWidth);
+    if (!firstCurrent && row.kind === 'current') firstCurrent = row;
+  });
+  var padY = Math.max(58, fontSize * 0.50);
+  var H = Math.max(384, Math.ceil(blockH + padY * 2));
+  if (H % 2) H += 1;
+  canvas.width = W;
+  canvas.height = H;
+  ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  for (var di = 0; di < lines.length; di++) {
-    var drawSize = fontSize * lineScales[di];
-    ctx.font = lyricFontCss(drawSize);
-    ctx.fillStyle = di === 0 ? 'rgba(255,255,255,1)' : 'rgba(0,0,0,.82)';
-    if (fitScaleX < 1) {
-      ctx.save();
-      ctx.translate(x, 0);
-      ctx.scale(fitScaleX, 1);
-      lyricFillText(ctx, lines[di], 0, y0 + di * lineHeight, drawSize);
-      ctx.restore();
+  var cursor = (H - blockH) / 2;
+  rows.forEach(function(row){
+    cursor += row.gapBefore;
+    row.top = cursor;
+    row.bottom = cursor + row.cellHeight;
+    row.baseline = row.top + (row.cellHeight - row.drawSize) / 2 + row.drawSize * 0.82;
+    row.xMin = (W / 2 - row.renderedWidth / 2) / W;
+    row.xMax = (W / 2 + row.renderedWidth / 2) / W;
+    row.vMin = 1 - row.bottom / H;
+    row.vMax = 1 - row.top / H;
+    var encodedKind = row.kind === 'current' ? 255 : (row.kind === 'secondary' ? 128 : 0);
+    var encodedOpacity = Math.round(clampRange(row.opacity, 0, 1) * 255);
+    if (row.kind === 'current') {
+      var startProgress = clampRange(row.contentStart / Math.max(1, row.charCount), 0, 1);
+      var endProgress = clampRange(row.contentEnd / Math.max(1, row.charCount), startProgress, 1);
+      var progressGradient = ctx.createLinearGradient(W / 2 - row.renderedWidth / 2, 0, W / 2 + row.renderedWidth / 2, 0);
+      progressGradient.addColorStop(0, 'rgb(' + Math.round(startProgress * 255) + ',' + encodedKind + ',' + encodedOpacity + ')');
+      progressGradient.addColorStop(1, 'rgb(' + Math.round(endProgress * 255) + ',' + encodedKind + ',' + encodedOpacity + ')');
+      ctx.fillStyle = progressGradient;
     } else {
-      lyricFillText(ctx, lines[di], x, y0 + di * lineHeight, drawSize);
+      ctx.fillStyle = 'rgb(0,' + encodedKind + ',' + encodedOpacity + ')';
     }
-  }
+    drawStageLyricRow(ctx, { width:W }, row, 0, 0, false);
+    cursor = row.bottom;
+  });
   applyStonePrintTexture(ctx, W, H, fontSize);
   var tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
+  tex.premultiplyAlpha = true;
   tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1);
-  return { texture:tex, width:W, height:H, textWidth:width, textHeight:blockH, fontSize:fontSize, lineHeight:lineHeight, lineCount:lines.length, lines:lines, lineScales:lineScales, fitScaleX:fitScaleX, textMin:(W / 2 - primaryWidth / 2) / W, textMax:(W / 2 + primaryWidth / 2) / W };
+  firstCurrent = firstCurrent || rows[0];
+  return {
+    texture:tex, width:W, height:H, textWidth:textWidth, textHeight:blockH, fontSize:fontSize,
+    lineHeight:fontSize * lyricLineHeightFactor(), lineCount:rows.length,
+    lines:rows.map(function(row){ return row.text; }), lineScales:rows.map(function(row){ return row.scale; }),
+    fitScaleX:1, textMin:firstCurrent.xMin, textMax:firstCurrent.xMax, rows:rows,
+    currentCharCount:firstCurrent.charCount || 1, orientation:portrait ? 'portrait' : 'landscape'
+  };
 }
 
 function makeLyricReadabilityTexture(mask) {
   var canvas = document.createElement('canvas');
-  var W = mask && mask.width || 2048;
-  var H = mask && mask.height || 384;
+  var textureScale = 0.75;
+  var W = Math.max(1, Math.ceil((mask && mask.width || 2048) * textureScale));
+  var H = Math.max(1, Math.ceil((mask && mask.height || 384) * textureScale));
   var fontSize = mask && mask.fontSize || 128;
-  var lines = mask && Array.isArray(mask.lines) && mask.lines.length ? mask.lines : [''];
-  var lineScales = mask && Array.isArray(mask.lineScales) && mask.lineScales.length ? mask.lineScales : lines.map(function(){ return 1; });
-  var lineHeight = mask && mask.lineHeight || fontSize * lyricLineHeightFactor();
-  var fitScaleX = mask && mask.fitScaleX || 1;
+  var rows = mask && Array.isArray(mask.rows) ? mask.rows : [];
   canvas.width = W; canvas.height = H;
   var ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
-  ctx.font = lyricFontCss(fontSize);
+  ctx.scale(textureScale, textureScale);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.miterLimit = 2;
-  var blockH = fontSize + (lines.length - 1) * lineHeight;
-  var y0 = H / 2 - blockH / 2 + fontSize * 0.82;
-  function strokeLines(dx, dy) {
-    for (var i = 0; i < lines.length; i++) {
-      var drawSize = fontSize * (lineScales[i] || 1);
-      ctx.font = lyricFontCss(drawSize);
-      var y = y0 + i * lineHeight + (dy || 0);
-      if (fitScaleX < 1) {
-        ctx.save();
-        ctx.translate(W / 2 + (dx || 0), 0);
-        ctx.scale(fitScaleX, 1);
-        lyricStrokeText(ctx, lines[i], 0, y, drawSize);
-        ctx.restore();
-      } else {
-        lyricStrokeText(ctx, lines[i], W / 2 + (dx || 0), y, drawSize);
-      }
-    }
+  function strokeRows(dx, dy) {
+    var baseAlpha = ctx.globalAlpha;
+    rows.forEach(function(row){
+      ctx.globalAlpha = baseAlpha * (row.kind === 'context' ? row.opacity : 1);
+      drawStageLyricRow(ctx, mask, row, dx, dy, true);
+    });
+    ctx.globalAlpha = baseAlpha;
   }
 
   // Black/white readability layer: text-shaped only, no rectangular backing.
@@ -8870,7 +9051,7 @@ function makeLyricReadabilityTexture(mask) {
   ctx.globalAlpha = 0.18;
   ctx.lineWidth = Math.max(18, fontSize * 0.16);
   ctx.strokeStyle = 'rgba(0,0,0,1)';
-  strokeLines(0, fontSize * 0.018);
+  strokeRows(0, fontSize * 0.018);
   ctx.restore();
 
   ctx.save();
@@ -8878,7 +9059,7 @@ function makeLyricReadabilityTexture(mask) {
   ctx.globalAlpha = 0.32;
   ctx.lineWidth = Math.max(9, fontSize * 0.075);
   ctx.strokeStyle = 'rgba(0,0,0,1)';
-  strokeLines(0, fontSize * 0.012);
+  strokeRows(0, fontSize * 0.012);
   ctx.restore();
 
   ctx.save();
@@ -8886,7 +9067,7 @@ function makeLyricReadabilityTexture(mask) {
   ctx.globalAlpha = 0.15;
   ctx.lineWidth = Math.max(9, fontSize * 0.070);
   ctx.strokeStyle = 'rgba(255,255,255,1)';
-  strokeLines(0, 0);
+  strokeRows(0, 0);
   ctx.restore();
 
   ctx.save();
@@ -8894,7 +9075,7 @@ function makeLyricReadabilityTexture(mask) {
   ctx.globalAlpha = 0.26;
   ctx.lineWidth = Math.max(3.2, fontSize * 0.030);
   ctx.strokeStyle = 'rgba(255,255,255,1)';
-  strokeLines(0, 0);
+  strokeRows(0, 0);
   ctx.restore();
 
   var tex = new THREE.CanvasTexture(canvas);
@@ -8905,51 +9086,28 @@ function makeLyricReadabilityTexture(mask) {
   return tex;
 }
 
-function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitScaleX, lineScales) {
-  var normalizedLines = splitLyricDisplayText(text);
-  var drawLines = Array.isArray(lines) && lines.length ? lines : normalizedLines;
-  lineScales = Array.isArray(lineScales) && lineScales.length ? lineScales : drawLines.map(function(_line, index){ return index === 0 ? 1 : 0.68; });
+function makeLyricGlowTexture(mask) {
   var canvas = document.createElement('canvas');
-  var measureCanvas = document.createElement('canvas');
-  var measureCtx = measureCanvas.getContext('2d');
-  measureCtx.font = lyricFontCss(fontSize);
-  fitScaleX = fitScaleX || 1;
-  var measuredWidth = Math.max(1, textWidth || 1);
-  for (var li = 0; li < drawLines.length; li++) {
-    var measureSize = fontSize * (lineScales[li] || 1);
-    measureCtx.font = lyricFontCss(measureSize);
-    measuredWidth = Math.max(measuredWidth, lyricMeasureText(measureCtx, drawLines[li], measureSize) * fitScaleX);
-  }
-  var padX = Math.max(160, fontSize * 1.45);
-  var padY = Math.max(86, fontSize * 0.78);
-  var lh = lineHeight || fontSize * 1.04;
-  var blockH = fontSize + (drawLines.length - 1) * lh;
-  var W = Math.ceil(measuredWidth + padX * 2);
-  var H = Math.ceil(blockH + padY * 2);
+  var textureScale = 0.50;
+  var W = Math.max(1, Math.ceil(mask.width * textureScale));
+  var H = Math.max(1, Math.ceil(mask.height * textureScale));
+  var fontSize = mask.fontSize;
+  var rows = mask.rows || [];
   canvas.width = W; canvas.height = H;
   var ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
+  ctx.scale(textureScale, textureScale);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.font = lyricFontCss(fontSize);
-  var y0 = H / 2 - blockH / 2 + fontSize * 0.82;
-  function drawGlowText(dx, dy) {
-    for (var i = 0; i < drawLines.length; i++) {
-      var drawSize = fontSize * (lineScales[i] || 1);
-      ctx.font = lyricFontCss(drawSize);
-      var y = y0 + i * lh + (dy || 0);
-      if (fitScaleX < 1) {
-        ctx.save();
-        ctx.translate(W / 2 + (dx || 0), 0);
-        ctx.scale(fitScaleX, 1);
-        if (ctx.lineWidth > 0) lyricStrokeText(ctx, drawLines[i], 0, y, drawSize);
-        lyricFillText(ctx, drawLines[i], 0, y, drawSize);
-        ctx.restore();
-      } else {
-        if (ctx.lineWidth > 0) lyricStrokeText(ctx, drawLines[i], W / 2 + (dx || 0), y, drawSize);
-        lyricFillText(ctx, drawLines[i], W / 2 + (dx || 0), y, drawSize);
-      }
-    }
+  function drawGlowRows(dx, dy) {
+    var baseAlpha = ctx.globalAlpha;
+    rows.forEach(function(row){
+      var rowAlpha = row.kind === 'current' ? 1 : row.opacity * (row.kind === 'secondary' ? 0.72 : 0.60);
+      ctx.globalAlpha = baseAlpha * rowAlpha;
+      if (ctx.lineWidth > 0) drawStageLyricRow(ctx, mask, row, dx, dy, true);
+      drawStageLyricRow(ctx, mask, row, dx, dy, false);
+    });
+    ctx.globalAlpha = baseAlpha;
   }
   ctx.save();
   ctx.filter = 'blur(14px)';
@@ -8957,7 +9115,7 @@ function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitS
   ctx.fillStyle = '#fff';
   ctx.lineWidth = Math.max(10, fontSize * 0.10);
   ctx.strokeStyle = '#fff';
-  drawGlowText(0, 0);
+  drawGlowRows(0, 0);
   ctx.restore();
   ctx.save();
   ctx.filter = 'blur(34px)';
@@ -8965,7 +9123,7 @@ function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitS
   ctx.fillStyle = '#fff';
   ctx.lineWidth = Math.max(18, fontSize * 0.18);
   ctx.strokeStyle = '#fff';
-  drawGlowText(0, 0);
+  drawGlowRows(0, 0);
   ctx.restore();
   ctx.save();
   ctx.filter = 'blur(78px)';
@@ -8973,7 +9131,7 @@ function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitS
   ctx.fillStyle = '#fff';
   ctx.lineWidth = Math.max(28, fontSize * 0.26);
   ctx.strokeStyle = '#fff';
-  drawGlowText(0, 0);
+  drawGlowRows(0, 0);
   ctx.restore();
   ctx.save();
   ctx.filter = 'blur(116px)';
@@ -8981,7 +9139,7 @@ function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitS
   ctx.fillStyle = '#fff';
   ctx.lineWidth = Math.max(42, fontSize * 0.40);
   ctx.strokeStyle = '#fff';
-  drawGlowText(0, 0);
+  drawGlowRows(0, 0);
   ctx.restore();
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -8990,10 +9148,11 @@ function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitS
   ctx.fillStyle = '#fff';
   for (var ri = 0; ri < 8; ri++) {
     var ang = ri / 8 * Math.PI * 2;
-    drawGlowText(Math.cos(ang) * 7, Math.sin(ang) * 4);
+    drawGlowRows(Math.cos(ang) * 7, Math.sin(ang) * 4);
   }
   ctx.restore();
   ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = 'destination-in';
   var xMask = ctx.createLinearGradient(0, 0, W, 0);
   xMask.addColorStop(0.00, 'rgba(255,255,255,0)');
@@ -9014,7 +9173,7 @@ function makeLyricGlowTexture(text, fontSize, textWidth, lines, lineHeight, fitS
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
-  tex.userData = { width:W, height:H, textWidth:measuredWidth };
+  tex.userData = { width:W, height:H, textWidth:mask.textWidth * textureScale };
   return tex;
 }
 
@@ -9086,8 +9245,7 @@ function makeLyricShaderMaterial(mask, pal) {
     uniforms: {
       uMap: { value: mask.texture },
       uProgress: { value: 0 },
-      uTextMin: { value: mask.textMin },
-      uTextMax: { value: mask.textMax },
+      uStaticOpacity: { value: 1 },
       uOpacity: { value: 0 },
       uBaseColor: { value: lyricThreeColor(pal.primary, '#d6f8ff', 0.38) },
       uHiColor: { value: lyricThreeColor(pal.highlight || pal.primary, '#fff0b8', 0.48) },
@@ -9100,7 +9258,7 @@ function makeLyricShaderMaterial(mask, pal) {
     fragmentShader: [
       'precision highp float;',
       'uniform sampler2D uMap;',
-      'uniform float uProgress,uTextMin,uTextMax,uOpacity,uFeather,uSolar;',
+      'uniform float uProgress,uStaticOpacity,uOpacity,uFeather,uSolar;',
       'uniform vec3 uBaseColor,uHiColor,uGlowColor,uSolarColor;',
       'varying vec2 vUv;',
       'void main(){',
@@ -9108,12 +9266,13 @@ function makeLyricShaderMaterial(mask, pal) {
       '  vec4 glyph = texture2D(uMap, uv);',
       '  float mask = glyph.a;',
       '  if(mask < 0.01) discard;',
-      '  float primaryMask = smoothstep(0.20, 0.80, glyph.r / max(mask, 0.001));',
-      '  float secondaryMask = 1.0 - primaryMask;',
-      '  float denom = max(0.001, uTextMax - uTextMin);',
-      '  float p = clamp((uv.x - uTextMin) / denom, 0.0, 1.0);',
-      '  float filled = (1.0 - smoothstep(uProgress, uProgress + uFeather, p)) * primaryMask;',
-      '  float edge = (1.0 - smoothstep(0.0, uFeather * 2.8, abs(p - uProgress))) * primaryMask;',
+      '  vec3 encoded = clamp(glyph.rgb / max(mask, 0.001), 0.0, 1.0);',
+      '  float p = encoded.r;',
+      '  float rowHighlight = step(0.82, encoded.g);',
+      '  float secondaryMask = 1.0 - smoothstep(0.10, 0.28, abs(encoded.g - 0.50));',
+      '  float rowOpacity = encoded.b * mix(uStaticOpacity, 1.0, rowHighlight);',
+      '  float filled = (1.0 - smoothstep(uProgress, uProgress + uFeather, p)) * rowHighlight;',
+      '  float edge = (1.0 - smoothstep(0.0, uFeather * 2.8, abs(p - uProgress))) * rowHighlight;',
       '  vec3 color = mix(uBaseColor, uGlowColor, secondaryMask * 0.18);',
       '  color = mix(color, uHiColor, filled * 0.88);',
       '  color += uGlowColor * edge * 0.14;',
@@ -9122,18 +9281,25 @@ function makeLyricShaderMaterial(mask, pal) {
       '  color += solar * edge * uSolar * 0.22;',
       '  float lum = dot(color, vec3(0.299, 0.587, 0.114));',
       '  color += vec3(max(0.0, 0.30 - lum));',
-      '  gl_FragColor = vec4(color, mask * uOpacity);',
+      '  gl_FragColor = vec4(color, mask * uOpacity * rowOpacity);',
       '}',
     ].join('\n'),
     transparent:true, depthWrite:false, depthTest:false, side:THREE.DoubleSide,
   });
 }
 
-function buildLyricMesh(text) {
-  text = splitLyricDisplayText(text).join('\n');
-  var mask = makeLyricMask(text);
+function stageLyricWorldWidth(mask) {
+  var textureWidth = mask && Number(mask.width) || STAGE_LYRIC_MASK_BASE_WIDTH;
+  var textureScale = clampRange(textureWidth / STAGE_LYRIC_MASK_BASE_WIDTH, 0.5, 1);
+  var portraitFit = mask && mask.orientation === 'portrait' ? 0.75 : 1;
+  return 6.10 * textureScale * portraitFit;
+}
+
+function buildLyricMesh(text, layout) {
+  var mask = makeLyricMask(text, layout);
   var pal = stageLyrics.palette;
-  var worldW = 6.10;
+  // Compact canvases must not enlarge glyphs; portrait views also need room inside a 9:16 camera frustum.
+  var worldW = stageLyricWorldWidth(mask);
   var worldH = worldW * (mask.height / mask.width);
   var geo = new THREE.PlaneGeometry(worldW, worldH, 1, 1);
   var textWorldW = worldW * (mask.textWidth / mask.width);
@@ -9161,16 +9327,13 @@ function buildLyricMesh(text) {
   sun.scale.set(0.78, 0.58, 1);
   group.add(sun);
 
-  var glowTex = makeLyricGlowTexture(text, mask.fontSize, mask.textWidth, mask.lines, mask.lineHeight, mask.fitScaleX, mask.lineScales);
+  var glowTex = makeLyricGlowTexture(mask);
   var glowMat = new THREE.MeshBasicMaterial({
     map: glowTex, transparent:true, opacity:0, depthWrite:false, depthTest:false,
     side:THREE.DoubleSide, blending:THREE.AdditiveBlending, color:lyricThreeColor(pal.secondary, '#9cffdf', 0.36)
   });
-  var glowMeta = glowTex.userData || {};
-  var glowWorldW = textWorldW * ((glowMeta.width || mask.width) / Math.max(1, glowMeta.textWidth || mask.textWidth));
-  glowWorldW = Math.min(worldW * 1.10, Math.max(textWorldW + worldH * 0.38, glowWorldW));
-  var glowWorldH = worldH * ((glowMeta.height || mask.height) / mask.height);
-  glowWorldH = Math.min(worldH * 1.42, Math.max(worldH * 0.92, glowWorldH));
+  var glowWorldW = worldW;
+  var glowWorldH = worldH;
   var glow = new THREE.Mesh(new THREE.PlaneGeometry(glowWorldW, glowWorldH, 1, 1), glowMat);
   glow.renderOrder = 41;
   glow.scale.set(1.0, 1.06, 1);
@@ -9266,20 +9429,59 @@ function updateLyricMeshProgress(mesh, progress) {
   mesh.userData.lastLyricProgress = progress;
 }
 
-function showStageLine(text, redrawOnly) {
+function captureStageLyricVisualState(mesh) {
+  if (!mesh || !mesh.userData || !mesh.userData.lyric) return null;
+  var d = mesh.userData.lyric;
+  return {
+    opacity:d.textMat && d.textMat.uniforms.uOpacity ? d.textMat.uniforms.uOpacity.value : 0,
+    solar:d.textMat && d.textMat.uniforms.uSolar ? d.textMat.uniforms.uSolar.value : 0,
+    readability:d.readabilityMat ? d.readabilityMat.opacity : 0,
+    glow:d.glowMat ? d.glowMat.opacity : 0,
+    sun:d.sunMat ? d.sunMat.opacity : 0,
+    age:Math.max(0, Number(mesh.userData.age) || 0)
+  };
+}
+
+function applyStageLyricVisualState(mesh, state) {
+  if (!mesh || !state || !mesh.userData || !mesh.userData.lyric) return;
+  var d = mesh.userData.lyric;
+  if (d.textMat && d.textMat.uniforms.uOpacity) d.textMat.uniforms.uOpacity.value = clampRange(Number(state.opacity) || 0, 0, 1);
+  if (d.textMat && d.textMat.uniforms.uSolar) d.textMat.uniforms.uSolar.value = Math.max(0, Number(state.solar) || 0);
+  if (d.readabilityMat) d.readabilityMat.opacity = Math.max(0, Number(state.readability) || 0);
+  if (d.glowMat) d.glowMat.opacity = Math.max(0, Number(state.glow) || 0);
+  if (d.sunMat) d.sunMat.opacity = Math.max(0, Number(state.sun) || 0);
+  mesh.userData.age = Math.max(0.48, Number(state.age) || 0);
+}
+
+function showStageLine(text, redrawOnly, layout) {
   createLyricsParticles();
   if (!stageLyrics.group) return;
   if (!text) { clearStageLyrics(); return; }
+  var nextLayout = layout || buildStageLyricLayout(-1, text);
+  var replaceImmediately = !!(redrawOnly || (stageLyrics.current && nextLayout && nextLayout.mode === 'three'));
+  var carriedVisualState = replaceImmediately ? captureStageLyricVisualState(stageLyrics.current) : null;
   if (redrawOnly && stageLyrics.current) {
     disposeLyricMesh(stageLyrics.current);
     stageLyrics.current = null;
   } else if (stageLyrics.current) {
-    stageLyrics.current.userData.state = 'out';
-    stageLyrics.current.userData.age = 0;
-    stageLyrics.outgoing.push(stageLyrics.current);
+    if (nextLayout && nextLayout.mode === 'three') {
+      disposeLyricMesh(stageLyrics.current);
+    } else {
+      var outgoingData = stageLyrics.current.userData && stageLyrics.current.userData.lyric;
+      if (outgoingData && outgoingData.textMat && outgoingData.textMat.uniforms.uStaticOpacity) {
+        outgoingData.textMat.uniforms.uStaticOpacity.value = 0;
+      }
+      stageLyrics.current.userData.state = 'out';
+      stageLyrics.current.userData.age = 0;
+      stageLyrics.outgoing.push(stageLyrics.current);
+    }
+    stageLyrics.current = null;
   }
   stageLyrics.currentText = text;
-  var mesh = buildLyricMesh(text);
+  stageLyrics.currentLayout = nextLayout;
+  stageLyrics.layoutViewportKey = stageLyrics.currentLayout && stageLyrics.currentLayout.viewportKey || '';
+  var mesh = buildLyricMesh(text, stageLyrics.currentLayout);
+  applyStageLyricVisualState(mesh, carriedVisualState);
   stageLyrics.group.add(mesh);
   stageLyrics.current = mesh;
 }
@@ -9287,7 +9489,16 @@ function showStageLine(text, redrawOnly) {
 function refreshCurrentLyricStyle() {
   if (!stageLyrics || !stageLyrics.currentText || !stageLyrics.current) return;
   var progress = stageLyrics.current.userData ? (stageLyrics.current.userData.lastLyricProgress || 0) : 0;
-  showStageLine(stageLyrics.currentText, true);
+  var text = stageLyrics.currentText;
+  var layout;
+  if (stageLyrics.currentIdx >= 0 && lyricsLines[stageLyrics.currentIdx]) {
+    var parts = stageLyricPartsForLine(lyricsLines[stageLyrics.currentIdx]);
+    text = parts.secondary ? parts.primary + '\n' + parts.secondary : parts.primary;
+    layout = buildStageLyricLayout(stageLyrics.currentIdx, text);
+  } else {
+    layout = buildStageLyricLayout(-1, text);
+  }
+  showStageLine(text, true, layout);
   updateLyricMeshProgress(stageLyrics.current, progress);
   if (stageLyrics.current && stageLyrics.current.userData) stageLyrics.current.userData.age = 0.48;
 }
@@ -9297,6 +9508,8 @@ function clearStageLyrics() {
   stageLyrics.current = null;
   stageLyrics.currentIdx = -1;
   stageLyrics.currentText = '';
+  stageLyrics.currentLayout = null;
+  stageLyrics.layoutViewportKey = '';
   while (stageLyrics.outgoing.length) disposeLyricMesh(stageLyrics.outgoing.pop());
 }
 
@@ -9399,10 +9612,26 @@ function updateStageLyrics3D(dt) {
   var lockDistance = lockBaseDistance + layoutZ;
   var cameraLockedLyrics = (fx.lyricCameraLock || wallpaperLyricLock) && camera;
   var skullLyricEdgeGuard = !!(fx && fx.preset === SKULL_PRESET_INDEX && (orbit.centerLocked || orbit.recentering));
-  var lockFit = (cameraLockedLyrics || skullLyricEdgeGuard || skullMouthLyrics) ? lyricCameraLockFit(layoutScale, layoutX, layoutY, skullMouthLyrics ? Math.max(2.2, 4.4 + layoutZ) : lockDistance) : 1;
+  var portraitViewportFit = !!(camera && stageLyrics.currentLayout && stageLyrics.currentLayout.orientation === 'portrait');
+  var viewportFitDistance = lockDistance;
+  if (portraitViewportFit && !cameraLockedLyrics && !skullLyricEdgeGuard && !skullMouthLyrics && stageLyrics.current) {
+    stageLyrics.group.updateMatrixWorld(true);
+    stageLyrics.current.getWorldPosition(lyricViewportFitWorldPos);
+    viewportFitDistance = camera.position.distanceTo(lyricViewportFitWorldPos);
+  }
+  var needsLyricFit = cameraLockedLyrics || skullLyricEdgeGuard || skullMouthLyrics || portraitViewportFit;
+  var viewportFitMaxScale = portraitViewportFit && !cameraLockedLyrics && !skullLyricEdgeGuard && !skullMouthLyrics ? 1 : undefined;
+  var lockFit = needsLyricFit ? lyricCameraLockFit(
+    layoutScale,
+    layoutX,
+    layoutY,
+    skullMouthLyrics ? Math.max(2.2, 4.4 + layoutZ) : viewportFitDistance,
+    viewportFitMaxScale
+  ) : 1;
   if (skullMouthLyrics) lockFit = Math.min(lockFit, 1.12);
   if (!isFinite(stageLyrics.lockFitScale)) stageLyrics.lockFitScale = 1;
-  stageLyrics.lockFitScale += (lockFit - stageLyrics.lockFitScale) * (lockFit < stageLyrics.lockFitScale ? 0.18 : 0.10);
+  if (portraitViewportFit && lockFit < stageLyrics.lockFitScale) stageLyrics.lockFitScale = lockFit;
+  else stageLyrics.lockFitScale += (lockFit - stageLyrics.lockFitScale) * (lockFit < stageLyrics.lockFitScale ? 0.18 : 0.10);
   stageLyrics.group.scale.setScalar(layoutScale * stageLyrics.lockFitScale);
   if (skullMouthLyrics) {
     stageLyrics.snapCameraLockFrames = 0;
@@ -9633,6 +9862,8 @@ function tickLyricsParticles() {
       stageLyrics.current = null;
       stageLyrics.currentIdx = -1;
       stageLyrics.currentText = '';
+      stageLyrics.currentLayout = null;
+      stageLyrics.layoutViewportKey = '';
     }
     return;
   }
@@ -9649,7 +9880,9 @@ function tickLyricsParticles() {
     }
     if (stageLyrics.currentIdx !== -2 || stageLyrics.currentText !== introText) {
       stageLyrics.currentIdx = -2;
-      showStageLine(introText);
+      showStageLine(introText, false, buildStageLyricLayout(-1, introText));
+    } else if (stageLyrics.current && stageLyrics.layoutViewportKey !== stageLyricViewportKey(false)) {
+      refreshCurrentLyricStyle();
     }
     if (stageLyrics.current) {
       var firstLine = lyricsLines[0];
@@ -9662,7 +9895,9 @@ function tickLyricsParticles() {
   if (newIdx !== stageLyrics.currentIdx) {
     stageLyrics.currentIdx = newIdx;
     var displayText = typeof getLyricDisplayText === 'function' ? getLyricDisplayText(lyricsLines[newIdx]) : (lyricsLines[newIdx].text || '');
-    showStageLine(displayText);
+    showStageLine(displayText, false, buildStageLyricLayout(newIdx, displayText));
+  } else if (stageLyrics.current && stageLyrics.layoutViewportKey !== stageLyricViewportKey(true)) {
+    refreshCurrentLyricStyle();
   }
   if (stageLyrics.current) {
     var curLine = lyricsLines[newIdx] || { t:t };
@@ -21155,6 +21390,7 @@ function normalizeFxArchiveSnapshot(raw) {
     lyricLetterSpacing: archiveNumber(raw, 'lyricLetterSpacing', fxDefaults.lyricLetterSpacing, -0.04, 0.18),
     lyricLineHeight: archiveNumber(raw, 'lyricLineHeight', fxDefaults.lyricLineHeight, 0.86, 1.35),
     lyricWeight: archiveNumber(raw, 'lyricWeight', fxDefaults.lyricWeight, 500, 900),
+    lyricLayoutMode: archiveMode(raw, 'lyricLayoutMode', /^(auto|focus|three)$/, fxDefaults.lyricLayoutMode),
     visualTintMode: raw.visualTintMode === 'custom' ? 'custom' : 'auto',
     visualTintColor: normalizeHexColor(raw.visualTintColor || fxDefaults.visualTintColor),
     uiAccentColor: normalizeHexColor(raw.uiAccentColor || fxDefaults.uiAccentColor, fxDefaults.uiAccentColor),
@@ -22095,6 +22331,20 @@ function setLyricFont(key) {
   pushDesktopLyricsState(true);
   showToast('歌词字体已切换');
 }
+function updateLyricLayoutControls() {
+  fx.lyricLayoutMode = normalizeLyricLayoutMode(fx.lyricLayoutMode);
+  document.querySelectorAll('#lyric-layout-seg [data-lyric-layout]').forEach(function(btn){
+    btn.classList.toggle('active', btn.getAttribute('data-lyric-layout') === fx.lyricLayoutMode);
+  });
+}
+function setLyricLayoutMode(mode) {
+  fx.lyricLayoutMode = normalizeLyricLayoutMode(mode);
+  updateLyricLayoutControls();
+  refreshCurrentLyricStyle();
+  saveLyricLayout();
+  var labels = { auto:'自动', focus:'单句', three:'三句' };
+  showToast('歌词布局: ' + labels[fx.lyricLayoutMode]);
+}
 function setLyricGlowLinked(linked, openPicker) {
   fx.lyricGlowLinked = linked !== false;
   if (!fx.lyricGlowLinked) fx.lyricGlowColor = normalizeHexColor(fx.lyricGlowColor || fx.lyricHighlightColor || '#9db8cf');
@@ -22499,6 +22749,7 @@ function updateFxInputs() {
   updateLyricHighlightControls();
   updateLyricGlowControls();
   updateLyricFontControls();
+  updateLyricLayoutControls();
   updateUiAccentControls();
   updateHomeAccentControls();
   updateIconAccentControls();
@@ -23438,6 +23689,7 @@ function resetFx() {
   updateRenderPowerClasses();
   applyRendererPowerMode();
   setStageLyricPalette(stageLyrics.coverPalette || stageLyrics.palette);
+  refreshCurrentLyricStyle();
   setPreset(fx.preset, { silent: true, preserveCamera: true, skipTransition: true });
   if (fx.floatLayer) createFloatLayer(); else destroyFloatLayer();
   if (shelfManager && shelfManager.rebuild) shelfManager.rebuild(true);
