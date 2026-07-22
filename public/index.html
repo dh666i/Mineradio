@@ -16,6 +16,7 @@
 <script src="js/core/network-errors.js"></script>
 <script src="js/core/netease-experience.js"></script>
 <script src="js/core/audio-settings.js"></script>
+<script src="js/core/audio-transition.js"></script>
 <script>
 try {
   document.documentElement.classList.add(localStorage.getItem('mineradio-diy-player-mode-v1') === '1' ? 'diy-mode-preload' : 'simple-mode-preload');
@@ -48,9 +49,12 @@ body.desktop-shell.desktop-maximized #desktop-window-shell,body.desktop-shell.de
 body.desktop-shell #desktop-titlebar{position:fixed;z-index:500;top:0;left:0;right:0;height:44px;padding:0 20px 0 18px;display:flex;align-items:center;justify-content:space-between;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;-webkit-app-region:drag;pointer-events:none}
 body.desktop-shell #desktop-titlebar::after{content:none}
 .desktop-drag-region{height:100%;flex:1;display:flex;align-items:center;gap:9px;min-width:0;color:rgba(224,250,255,.74);font-size:12px;font-weight:600;letter-spacing:0;text-transform:uppercase;-webkit-app-region:drag;pointer-events:auto}
+#desktop-search-hover-bridge{display:none}
+body.desktop-shell #desktop-search-hover-bridge{position:absolute;z-index:1;top:0;left:50%;display:block;width:clamp(240px,calc(100vw - 160px),700px);height:44px;transform:translateX(-50%);pointer-events:none;-webkit-app-region:drag}
+body.desktop-shell #desktop-search-hover-bridge.active{pointer-events:auto;-webkit-app-region:no-drag}
 .desktop-app-mark{display:none}
 .desktop-app-title{display:none}
-.desktop-window-controls{display:flex;align-items:center;gap:6px;padding:0;border-radius:0;background:transparent;box-shadow:none;-webkit-app-region:no-drag;pointer-events:auto}
+.desktop-window-controls{position:relative;z-index:2;display:flex;align-items:center;gap:6px;padding:0;border-radius:0;background:transparent;box-shadow:none;-webkit-app-region:no-drag;pointer-events:auto}
 .desktop-window-btn{width:38px;height:30px;border:0;border-radius:10px;background:rgba(4,8,10,.42);color:rgba(224,250,255,.72);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .18s,color .18s,transform .18s}
 .desktop-window-btn svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none}
 .desktop-window-btn:hover{background:rgba(244,210,138,.14);color:#fff1bd;transform:translateY(-1px)}
@@ -70,8 +74,8 @@ body.desktop-shell #desktop-titlebar #update-entry::after{display:none}
 body.desktop-shell #desktop-titlebar #visual-guide-btn:hover,
 body.desktop-shell #desktop-titlebar #update-entry:hover{background:rgba(255,83,103,.10);border-color:rgba(255,83,103,.32);color:#fff;transform:translateY(-1px)}
 body.desktop-shell #search-area{top:-92px}
-body.desktop-shell #search-area.peek{top:34px}
-body.desktop-shell #search-area.stage-mode.peek{top:32px}
+body.desktop-shell #search-area.peek{top:46px}
+body.desktop-shell #search-area.stage-mode.peek{top:46px}
 body.desktop-shell #top-right{top:58px;right:24px}
 body.desktop-shell #trial-banner{top:112px}
 body.desktop-shell #ai-depth-chip{top:112px}
@@ -233,7 +237,7 @@ body.simple-mode #fx-panel{display:none!important}
 html.simple-mode-preload #search-area,
 body.simple-mode #search-area{--search-offset:0;left:50%;width:min(620px,calc(100vw - 56px));transform:translateX(-50%);align-items:stretch}
 body.simple-mode #search-area.peek{top:24px}
-body.desktop-shell.simple-mode #search-area.peek{top:34px}
+body.desktop-shell.simple-mode #search-area.peek{top:46px}
 html.simple-mode-preload #search-stack,
 body.simple-mode #search-stack{width:100%}
 body.simple-mode #search-box{height:58px;border-radius:22px;background:var(--glass-bg);border-color:var(--glass-border);box-shadow:var(--glass-shadow)}
@@ -1900,6 +1904,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
     <div class="desktop-app-mark" aria-hidden="true"></div>
     <div class="desktop-app-title" aria-hidden="true"></div>
   </div>
+  <div id="desktop-search-hover-bridge" aria-hidden="true"></div>
   <div class="desktop-window-controls">
     <button id="visual-guide-btn" class="icon-btn" type="button" onclick="startVisualGuide({ manual: true })" title="查看使用引导" aria-label="查看使用引导">?</button>
     <button id="update-entry" class="update-entry" type="button" onclick="openUpdatePanel()" title="发现新版本" aria-label="发现新版本">
@@ -2706,7 +2711,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">发现新版本</div>
-          <div id="update-modal-version" class="update-version">v1.5.3</div>
+          <div id="update-modal-version" class="update-version">v1.5.4</div>
         </div>
         <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
@@ -2746,7 +2751,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <button class="active" type="button" role="tab" aria-selected="true" data-settings-tab="playback">播放</button>
         <button type="button" role="tab" aria-selected="false" data-settings-tab="performance">性能</button>
         <button type="button" role="tab" aria-selected="false" data-settings-tab="shortcuts">快捷键</button>
-        <button type="button" role="tab" aria-selected="false" data-settings-tab="update">更新与数据</button>
+        <button type="button" role="tab" aria-selected="false" data-settings-tab="update">关于</button>
       </nav>
       <div class="settings-content">
         <section class="settings-page active" data-settings-page="playback">
@@ -2767,13 +2772,29 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
           <button class="modal-btn primary" type="button" onclick="openHotkeySettingsFromSettings()">配置快捷键</button>
         </section>
         <section class="settings-page" data-settings-page="update">
-          <h3>更新与数据</h3>
-          <div class="settings-action-grid">
-            <button class="modal-btn primary" type="button" onclick="checkForUpdatesFromSettings()">检查更新</button>
-            <button class="modal-btn" type="button" onclick="restoreLatestSettingsBackup()">恢复备份</button>
-            <button class="modal-btn" type="button" onclick="exportDiagnostics()">导出诊断</button>
+          <div class="settings-about-layout">
+            <div class="settings-about-summary">
+              <div class="settings-about-kicker">MINERADIO</div>
+              <h3>关于 Mineradio</h3>
+              <p class="settings-about-subtitle">Windows 桌面音乐播放器</p>
+              <div id="settings-version" class="settings-version">Mineradio</div>
+            </div>
+            <div class="settings-feedback">
+              <img class="settings-feedback-qr" src="assets/wechat-feedback-qr.png" alt="微信反馈二维码" draggable="false">
+              <div class="settings-feedback-copy">
+                <strong>微信反馈</strong>
+                <span>有功能或优化建议，添加此微信反馈。</span>
+              </div>
+            </div>
           </div>
-          <div id="settings-version" class="settings-version">Mineradio</div>
+          <div class="settings-maintenance">
+            <h4>应用维护</h4>
+            <div class="settings-action-grid">
+              <button class="modal-btn primary" type="button" onclick="checkForUpdatesFromSettings()">检查更新</button>
+              <button class="modal-btn" type="button" onclick="restoreLatestSettingsBackup()">恢复备份</button>
+              <button class="modal-btn" type="button" onclick="exportDiagnostics()">导出诊断</button>
+            </div>
+          </div>
         </section>
       </div>
     </div>
@@ -2825,6 +2846,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 //  Global State
 // ============================================================
 var audio = null, audioCtx = null, source = null, analyser = null, beatAnalyser = null, gainNode = null, audioReady = false;
+var playbackAudioElements = [];
 var uiSfxCtx = null, lastShelfSelectSfxAt = 0;
 var FFT_SIZE = 2048;
 var frequencyData = new Uint8Array(FFT_SIZE / 2);
@@ -2983,8 +3005,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.5.3',
-  version: '1.5.3',
+  currentVersion: '1.5.4',
+  version: '1.5.4',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -3971,6 +3993,10 @@ function updateDesktopRuntimeState(state) {
   desktopRuntimeState.visible = state.isVisible !== false;
   desktopRuntimeState.focused = state.isFocused !== false;
   desktopRuntimeState.fullscreen = !!(state.isFullScreen || state.isNativeFullScreen || state.isHtmlFullScreen || state.isWindowFullScreen);
+  if ((desktopRuntimeState.minimized || !desktopRuntimeState.visible || !desktopRuntimeState.focused)
+    && typeof clearTransientPointerUi === 'function') {
+    clearTransientPointerUi('desktop-runtime-state');
+  }
   updateRenderPowerClasses();
   applyRendererPowerMode();
   if (fx && (fx.desktopLyrics || fx.wallpaperMode)) setTimeout(syncDesktopOverlayState, 0);
@@ -3988,6 +4014,7 @@ function updateDesktopRuntimeState(state) {
 function installRenderPowerHooks() {
   updateRenderPowerClasses();
   document.addEventListener('visibilitychange', function(){
+    if (document.hidden && typeof clearTransientPointerUi === 'function') clearTransientPointerUi('document-hidden');
     updateRenderPowerClasses();
     applyRendererPowerMode();
     if (!isDeepBackgroundMode()) recoverVisualsAfterBackground('visibilitychange');
@@ -4000,6 +4027,7 @@ function installRenderPowerHooks() {
   });
   window.addEventListener('blur', function(){
     desktopRuntimeState.focused = false;
+    if (typeof clearTransientPointerUi === 'function') clearTransientPointerUi('window-blur');
     updateRenderPowerClasses();
     applyRendererPowerMode();
   });
@@ -16748,6 +16776,21 @@ function switchPlaybackVisualToEmily() {
     syncFxUniforms();
   }
 }
+function revealRestoredPlaybackVisual() {
+  switchPlaybackVisualToEmily();
+  if (typeof firstPlayDone !== 'undefined') firstPlayDone = true;
+  if (uniforms && uniforms.uAlpha) {
+    var currentAlpha = Number(uniforms.uAlpha.value) || 0;
+    if (currentAlpha < 0.995 && typeof tweenParticleAlpha === 'function') {
+      tweenParticleAlpha(currentAlpha, 1.0, 520);
+    } else {
+      uniforms.uAlpha.value = 1.0;
+    }
+  }
+  var hint = document.getElementById('hint');
+  if (hint) hint.classList.add('hidden');
+  if (typeof markRenderInteraction === 'function') markRenderInteraction('restored-playback-visual', 1400);
+}
 function applyStartupStarfieldPreset() {
   if (playing || currentIdx >= 0) return;
   startupVisualPreviewActive = true;
@@ -18881,27 +18924,62 @@ async function doSearch(q, opts) {
 // ============================================================
 //  音频上下文 & 频谱分析
 // ============================================================
+function attachPlaybackAudioElement(media, initialGain) {
+  if (!media || !audioCtx || !analyser || !beatAnalyser) return null;
+  if (media.__mineradioAudioContext === audioCtx && media.__mineradioDeckGain && media.__mineradioMediaSource) {
+    if (initialGain != null) setPlaybackAudioDeckGain(media, initialGain);
+    return { source: media.__mineradioMediaSource, gain: media.__mineradioDeckGain };
+  }
+  var mediaSource = audioCtx.createMediaElementSource(media);
+  var deckGain = audioCtx.createGain();
+  deckGain.gain.setValueAtTime(initialGain == null ? 1 : clampRange(Number(initialGain) || 0, 0, 1), audioCtx.currentTime || 0);
+  mediaSource.connect(deckGain);
+  deckGain.connect(analyser);
+  deckGain.connect(beatAnalyser);
+  media.__mineradioAudioContext = audioCtx;
+  media.__mineradioMediaSource = mediaSource;
+  media.__mineradioDeckGain = deckGain;
+  if (playbackAudioElements.indexOf(media) < 0) playbackAudioElements.push(media);
+  return { source: mediaSource, gain: deckGain };
+}
+function setPlaybackAudioDeckGain(media, value) {
+  var deckGain = media && media.__mineradioDeckGain;
+  if (!deckGain || !deckGain.gain || !audioCtx) return false;
+  var now = audioCtx.currentTime || 0;
+  value = clampRange(Number(value) || 0, 0, 1);
+  try {
+    deckGain.gain.cancelScheduledValues(now);
+    deckGain.gain.setValueAtTime(value, now);
+    return true;
+  } catch (e) {
+    try { deckGain.gain.value = value; return true; } catch (_) {}
+  }
+  return false;
+}
+function getPlaybackAudioElements() {
+  return playbackAudioElements.filter(function(media){ return !!media; }).slice();
+}
 function initAudio() {
-  if (audioReady) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  source = audioCtx.createMediaElementSource(audio);
-  analyser = audioCtx.createAnalyser();
-  beatAnalyser = audioCtx.createAnalyser();
-  gainNode = audioCtx.createGain();
-  analyser.fftSize = FFT_SIZE;
-  analyser.smoothingTimeConstant = 0.58;
-  beatAnalyser.fftSize = BEAT_FFT_SIZE;
-  beatAnalyser.smoothingTimeConstant = 0.10;
-  source.connect(analyser);
-  source.connect(beatAnalyser);
-  analyser.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    beatAnalyser = audioCtx.createAnalyser();
+    gainNode = audioCtx.createGain();
+    analyser.fftSize = FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.58;
+    beatAnalyser.fftSize = BEAT_FFT_SIZE;
+    beatAnalyser.smoothingTimeConstant = 0.10;
+    analyser.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    frequencyData.fill(0);
+    beatFrequencyData.fill(0);
+    beatTimeDomainData.fill(128);
+    resetRealtimeBeatEngine();
+  }
+  var deck = attachPlaybackAudioElement(audio, 1);
+  if (deck) source = deck.source;
   applyVolumeToAudio();
-  frequencyData.fill(0);
-  beatFrequencyData.fill(0);
-  beatTimeDomainData.fill(128);
-  resetRealtimeBeatEngine();
-  audioReady = true;
+  audioReady = !!deck;
 }
 function resumeAudioAnalysis() {
   if (audioCtx && audioCtx.state === 'suspended') return audioCtx.resume().catch(function(e){ console.warn('audio context resume failed:', e); });
@@ -19083,6 +19161,9 @@ function restorePlaybackGain() {
   setAudioOutputGainImmediate(targetVolume);
 }
 function fadeOutAndPauseAudio() {
+  if (window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
+    window.MineradioTransitionV153.cancel('pause-intent');
+  }
   if (!audio || audio.paused) return Promise.resolve(false);
   var serial = ++audioFadeSerial;
   rampAudioOutputGain(0, AUDIO_FADE_OUT_MS);
@@ -19515,8 +19596,15 @@ function pauseCurrentAudioForTrackSwitch() {
   syncPlaybackStateFromAudioEvent('track-switch');
 }
 
+function hasAudibleTransitionRecovery() {
+  return !!(window.MineradioTransitionV153
+    && typeof window.MineradioTransitionV153.hasAudibleOutgoing === 'function'
+    && window.MineradioTransitionV153.hasAudibleOutgoing());
+}
+
 function syncPlaybackStateFromAudioEvent(reason) {
-  var isPlaying = !!(audio && audio.src && !audio.paused && !audio.ended);
+  var recoveryAudible = hasAudibleTransitionRecovery();
+  var isPlaying = recoveryAudible || !!(audio && audio.src && !audio.paused && !audio.ended);
   playing = isPlaying;
   setPlayIcon(isPlaying);
   if (!isPlaying) hideLoading();
@@ -19565,8 +19653,28 @@ function scheduleAudioResumePosition(media, seconds, token) {
   applyResume();
 }
 
+function installQueueAudioEndedHandler(media, token, playbackContext) {
+  if (!media) return;
+  media.onended = function(){
+    if (token !== trackSwitchToken) return;
+    finalizeListenSession(true);
+    if (playbackContext && playbackContext.type === 'netease-personal-fm') setTimeout(advancePersonalFmTrack, 0);
+    else if (playMode === 'single') setTimeout(function(){ playQueueAt(currentIdx, { autoRepeat: true }); }, 0);
+    else setTimeout(nextTrack, 0);
+  };
+}
+
 async function playQueueAt(idx, opts) {
   opts = opts || {};
+  var preparedTransition = opts.preparedTransition && typeof opts.preparedTransition === 'object'
+    ? opts.preparedTransition
+    : null;
+  var preparedTransitionSettled = false;
+  function notifyPreparedTransitionSettled(reason) {
+    if (!preparedTransition || preparedTransitionSettled || typeof preparedTransition.onCoreSettled !== 'function') return;
+    preparedTransitionSettled = true;
+    setTimeout(function(){ preparedTransition.onCoreSettled(reason || 'settled'); }, 0);
+  }
   if (idx < 0 || idx >= playQueue.length) return;
   if (opts.intentToken != null) {
     if (Number(opts.intentToken) !== playbackIntentSeq) return;
@@ -19594,6 +19702,19 @@ async function playQueueAt(idx, opts) {
   markPlayPhase('track-setup');
   var song = safePlaybackStep('hydrate-song', function(){ return hydrateCustomCover(playQueue[idx]); }) || playQueue[idx];
   playQueue[idx] = song;
+  if (preparedTransition) {
+    var transitionCore = window.MineradioCore && window.MineradioCore.audioTransition;
+    var preparedSongKey = transitionCore && transitionCore.songStableKey ? transitionCore.songStableKey(song) : '';
+    var preparedValid = preparedTransition.media
+      && preparedTransition.oldAudio === audio
+      && Number(preparedTransition.nextIndex) === idx
+      && (!preparedTransition.nextKey || preparedTransition.nextKey === preparedSongKey);
+    if (!preparedValid) {
+      if (typeof preparedTransition.onRejected === 'function') preparedTransition.onRejected('stale-transition');
+      notifyPreparedTransitionSettled('stale-transition');
+      return;
+    }
+  }
   activePlaybackSong = song;
   var playbackContext = opts.context || (song && song.radioContext) || null;
   activeRadioContext = playbackContext || null;
@@ -19602,7 +19723,11 @@ async function playQueueAt(idx, opts) {
   }
   safeRenderQueuePanel('play-queue-at-switch', { scrollCurrent: miniQueueOpen });
   safePlaybackStep('shelf-preview-suppress', suppressShelfPreviewForPlaybackSwitch);
-  pauseCurrentAudioForTrackSwitch();
+  if (!preparedTransition) pauseCurrentAudioForTrackSwitch();
+  else {
+    audioFadeSerial++;
+    clearAudioFadeTimers();
+  }
   var bmKey = safePlaybackStep('beatmap-key', function(){ return beatMapSongKey(song); }) || '';
   var podcastDjMode = !!safePlaybackStep('podcast-mode', function(){ return isPodcastSong(song); });
   safePlaybackStep('dj-mode', function(){ setDjModeActive(podcastDjMode, song); });
@@ -19656,10 +19781,15 @@ async function playQueueAt(idx, opts) {
       requestedQuality = qqPlaybackQualityCeiling;
     }
     var qualityParam = '&quality=' + encodeURIComponent(requestedQuality);
-    var data = isQQPlayback
-      ? await apiJson('/api/qq/song/url?mid=' + encodeURIComponent(song.mid || song.songmid || song.id || '') + '&mediaMid=' + encodeURIComponent(song.mediaMid || song.media_mid || '') + qualityParam)
-      : await apiJson('/api/song/url?id=' + song.id + qualityParam);
-    if (token !== trackSwitchToken) return;
+    var data = preparedTransition && preparedTransition.data
+      ? preparedTransition.data
+      : (isQQPlayback
+        ? await apiJson('/api/qq/song/url?mid=' + encodeURIComponent(song.mid || song.songmid || song.id || '') + '&mediaMid=' + encodeURIComponent(song.mediaMid || song.media_mid || '') + qualityParam)
+        : await apiJson('/api/song/url?id=' + song.id + qualityParam));
+    if (token !== trackSwitchToken) {
+      notifyPreparedTransitionSettled('superseded-before-source');
+      return;
+    }
     if (!data.url) {
       if (isQQPlayback && await retryQQPlaybackWithCompatibleQuality(song, idx, token, Object.assign({}, opts, { context: playbackContext }), data, requestedQuality)) return;
       if (await tryAutoPlaybackFallback(song, data, idx, token, Object.assign({}, opts, { context: playbackContext }))) return;
@@ -19687,7 +19817,13 @@ async function playQueueAt(idx, opts) {
       document.getElementById('trial-banner').classList.add('show');
     }
     markPlayPhase('audio-element');
-    if (!audio) { audio = new Audio(); audio.crossOrigin = 'anonymous'; }
+    if (preparedTransition) {
+      audio = preparedTransition.media;
+      audio.crossOrigin = 'anonymous';
+      var preparedDeck = attachPlaybackAudioElement(audio, null);
+      if (preparedDeck) source = preparedDeck.source;
+    }
+    else if (!audio) { audio = new Audio(); audio.crossOrigin = 'anonymous'; }
     else {
       audioFadeSerial++;
       clearAudioFadeTimers();
@@ -19695,18 +19831,30 @@ async function playQueueAt(idx, opts) {
     }
     bindPlaybackProgressEvents(audio);
     applyVolumeToAudio();
-    var proxyAudioUrl = '/api/audio?url=' + encodeURIComponent(data.url);
-    audio.src = proxyAudioUrl;
+    var proxyAudioUrl = preparedTransition && preparedTransition.proxyAudioUrl
+      ? preparedTransition.proxyAudioUrl
+      : '/api/audio?url=' + encodeURIComponent(data.url);
+    if (!preparedTransition) audio.src = proxyAudioUrl;
     updatePlaybackProgressUi();
-    audio.onended = function(){
-      if (token !== trackSwitchToken) return;
-      finalizeListenSession(true);
-      if (playbackContext && playbackContext.type === 'netease-personal-fm') setTimeout(advancePersonalFmTrack, 0);
-      else if (playMode === 'single') setTimeout(function(){ playQueueAt(currentIdx, { autoRepeat: true }); }, 0);
-      else setTimeout(nextTrack, 0);
-    };
-    scheduleAudioResumePosition(audio, opts.resumeAt, token);
-    audio.load();
+    installQueueAudioEndedHandler(audio, token, playbackContext);
+    if (!preparedTransition) {
+      scheduleAudioResumePosition(audio, opts.resumeAt, token);
+      audio.load();
+    }
+    var playbackStarted = null;
+    if (preparedTransition) {
+      markPlayPhase('transition-audio-start');
+      playbackStarted = !!(audio && !audio.paused && !audio.ended);
+      if (playbackStarted) {
+        restorePlaybackGain();
+        switchPlaybackVisualToEmily();
+        playing = true;
+        setPlayIcon(true);
+        forcePlaybackControlsInteractive();
+        hideLoading();
+      }
+      if (playbackStarted && typeof preparedTransition.onAdopted === 'function') preparedTransition.onAdopted(audio);
+    }
     markPlayPhase('visual-prep');
     try {
     // 重置 beatmap 状态
@@ -19750,6 +19898,10 @@ async function playQueueAt(idx, opts) {
       scheduleQueueBeatPrefetch(idx, 2600);
     } else {
       var diskBeatMap = bmKey ? await readBeatDiskCache(bmKey) : null;
+      if (token !== trackSwitchToken) {
+        notifyPreparedTransitionSettled('superseded-during-visuals');
+        return;
+      }
       if (diskBeatMap) {
         currentBeatMap = diskBeatMap;
         applyCinemaProfileFromBeatMap(currentBeatMap);
@@ -19768,9 +19920,15 @@ async function playQueueAt(idx, opts) {
       beatMapNextIdx = 0;
       safePlaybackStep('visual-prep-hide-chip', hideBeatChip);
     }
+    if (token !== trackSwitchToken) {
+      notifyPreparedTransitionSettled('superseded-after-visuals');
+      return;
+    }
     markPlayPhase('audio-start');
-    var playbackStarted = await playAudio({ silent: isQQPlayback });
+    if (playbackStarted == null) playbackStarted = await playAudio({ silent: isQQPlayback });
     if (!playbackStarted) {
+      if (preparedTransition && typeof preparedTransition.onRejected === 'function') preparedTransition.onRejected('playback-start-failed');
+      notifyPreparedTransitionSettled('playback-start-failed');
       if (isQQPlayback && await retryQQPlaybackWithCompatibleQuality(song, idx, token, Object.assign({}, opts, { context: playbackContext }), data, requestedQuality)) return;
       forcePlaybackControlsInteractive();
       if (opts.manual) {
@@ -19796,10 +19954,14 @@ async function playQueueAt(idx, opts) {
     safeRenderQueuePanel('play-queue-at');
     scheduleShelfRebuild('play-queue-at', true);
     safePlaybackStep('shelf-preview-suppress-end', suppressShelfPreviewForPlaybackSwitch);
+    notifyPreparedTransitionSettled('committed');
   } catch (err) {
+    if (preparedTransition && typeof preparedTransition.onRejected === 'function') preparedTransition.onRejected('playback-error');
+    notifyPreparedTransitionSettled('playback-error');
     console.error('Play failed:', { phase: playPhase, error: err }, err);
     hideLoading();
     forcePlaybackControlsInteractive();
+    if (preparedTransition) return;
     if (!isPlaybackRecursionError(err) && token === trackSwitchToken && !opts.manual && (playQueue.length > 1 || (playbackContext && playbackContext.type === 'netease-personal-fm'))) {
       skipFailedQueueItem(idx, token, '当前歌曲加载失败，正在尝试队列里的下一首。', playbackContext);
       return;
@@ -19807,9 +19969,12 @@ async function playQueueAt(idx, opts) {
     showToast(playbackFailureToastText(err));
   }
   } catch (setupErr) {
+    if (preparedTransition && typeof preparedTransition.onRejected === 'function') preparedTransition.onRejected('playback-setup-error');
+    notifyPreparedTransitionSettled('playback-setup-error');
     console.error('Play setup failed:', { phase: playPhase, error: setupErr }, setupErr);
     hideLoading();
     forcePlaybackControlsInteractive();
+    if (preparedTransition) return;
     if (!isPlaybackRecursionError(setupErr) && typeof token !== 'undefined' && token === trackSwitchToken && !opts.manual && (playQueue.length > 1 || (playbackContext && playbackContext.type === 'netease-personal-fm'))) {
       skipFailedQueueItem(idx, token, '当前歌曲切换失败，正在尝试队列里的下一首。', playbackContext);
       return;
@@ -19851,7 +20016,7 @@ async function attemptAudioPlay(opts) {
 }
 async function playAudio(opts) {
   opts = opts || {};
-  return attemptAudioPlay({ manual: false, silent: !!opts.silent });
+  return attemptAudioPlay({ manual: false, silent: !!opts.silent, fade: opts.fade !== false });
 }
 async function togglePlay() {
   if (playToggleBusy) return;
@@ -19863,7 +20028,8 @@ async function togglePlay() {
       return;
     }
     if (!audio) return;
-    if (audio.paused || audio.ended) {
+    var recoveryAudible = hasAudibleTransitionRecovery();
+    if ((audio.paused || audio.ended) && !recoveryAudible) {
       await attemptAudioPlay({ manual: true });
     } else {
       await fadeOutAndPauseAudio();
@@ -21130,12 +21296,16 @@ function bindPlaybackProgressEvents(audioEl) {
   audioEl._mineradioProgressBound = true;
   ['loadedmetadata', 'durationchange', 'timeupdate', 'seeked', 'ratechange', 'play', 'pause', 'emptied'].forEach(function(name){
     audioEl.addEventListener(name, function(){
+      if (audioEl !== audio) return;
       updatePlaybackProgressUi();
       if (typeof syncSystemMediaPosition === 'function') syncSystemMediaPosition(name !== 'timeupdate');
     });
   });
   ['play', 'playing', 'pause', 'ended', 'emptied', 'abort', 'error'].forEach(function(name){
-    audioEl.addEventListener(name, function(){ syncPlaybackStateFromAudioEvent(name); });
+    audioEl.addEventListener(name, function(){
+      if (audioEl !== audio) return;
+      syncPlaybackStateFromAudioEvent(name);
+    });
   });
 }
 function emitProgressDragParticles(x, y) {
@@ -21206,6 +21376,9 @@ function handleFiles(files) {
     else if (f.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(f.name)) imgFile = f;
   }
   if (audioFile) {
+    if (window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
+      window.MineradioTransitionV153.cancel('queue-switch');
+    }
     finalizeListenSession(false);
     var url = URL.createObjectURL(audioFile);
     var localTitle = audioFile.name.replace(/\.[^.]+$/, '');
@@ -23812,6 +23985,7 @@ function closeImmersiveInterference(opts) {
     var el = document.getElementById(id);
     if (el) el.classList.remove('peek', 'show', 'closing');
   });
+  if (typeof setDesktopSearchHoverBridgeActive === 'function') setDesktopSearchHoverBridgeActive(false);
   var fab = document.getElementById('fx-fab');
   if (fab) fab.classList.remove('active');
   document.body.classList.remove('login-guide-active', 'immersive-top-peek', 'immersive-right-peek', 'fullscreen-diy-peek');
@@ -26574,8 +26748,13 @@ document.addEventListener('keydown', function(e){
 // ============================================================
 var PEEK_HIDE_DELAY = 170;
 var peekTimers = { search:null, fx:null, pl:null };
-function setPeek(el, on, key) {
+function setDesktopSearchHoverBridgeActive(active) {
+  var bridge = document.getElementById('desktop-search-hover-bridge');
+  if (bridge) bridge.classList.toggle('active', !!active);
+}
+function setPeek(el, on, key, opts) {
   if (!el) return;
+  opts = opts || {};
   if (on && !diyPlayerMode && key === 'fx') return;
   if (!on && key === 'search' && emptyHomeActive && !immersiveMode) return;
   if (!on && key === 'pl' && playlistPanelPinned && !immersiveMode) return;
@@ -26593,6 +26772,7 @@ function setPeek(el, on, key) {
       delete el.dataset.preserveTabOnOpen;
     }
     el.classList.add('peek');
+    if (key === 'search') setDesktopSearchHoverBridgeActive(true);
     if (key === 'pl' && !wasPeek) {
       scheduleUiWarmTask(function(){
         flushDeferredQueuePanel('playlist-panel-peek');
@@ -26605,14 +26785,17 @@ function setPeek(el, on, key) {
     }
   } else {
     if (peekTimers[key]) clearTimeout(peekTimers[key]);
-    peekTimers[key] = setTimeout(function(){
+    var finishHide = function(){
       el.classList.remove('peek');
+      if (key === 'search') setDesktopSearchHoverBridgeActive(false);
       if (key === 'fx') {
         var fabOff = document.getElementById('fx-fab');
         if (fabOff && !el.classList.contains('show')) fabOff.classList.remove('active');
       }
       peekTimers[key] = null;
-    }, PEEK_HIDE_DELAY);
+    };
+    if (opts.immediate) finishHide();
+    else peekTimers[key] = setTimeout(finishHide, PEEK_HIDE_DELAY);
   }
 }
 function uploadTipWasSeen() {
@@ -26758,16 +26941,33 @@ function isPlaylistPanelFocusActive(inTrigger, inPanel, pp, ex, ppRect) {
   if (isSecondaryLeftDisplaySeamGuardActive() && ex < SECONDARY_PLAYLIST_SEAM_CLOSE_X) return false;
   return inTrigger || inPanel || (pp && pp.classList.contains('peek') && ex < ppRect.right + playlistPanelFocusPadding());
 }
-function clearImmersivePointerUi() {
-  if (!immersiveMode) return;
+function didPointerExitViewport(e) {
+  if (!e || e.relatedTarget || e.toElement) return false;
+  var x = Number(e.clientX);
+  var y = Number(e.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return true;
+  return x <= 1 || y <= 1 || x >= innerWidth - 1 || y >= innerHeight - 1;
+}
+function clearTransientPointerUi(reason) {
   document.body.classList.remove('immersive-top-peek', 'immersive-right-peek', 'fullscreen-diy-peek');
-  setPeek(document.getElementById('search-area'), false, 'search');
-  setPeek(document.getElementById('fx-panel'), false, 'fx');
-  setPeek(document.getElementById('playlist-panel'), false, 'pl');
+  document.body.classList.remove('user-capsule-peek', 'fx-fab-peek', 'controls-handle-awake');
+  if ($input && document.activeElement === $input) $input.blur();
+  setPeek(document.getElementById('search-area'), false, 'search', { immediate:true });
+  setPeek(document.getElementById('fx-panel'), false, 'fx', { immediate:true });
+  setPeek(document.getElementById('playlist-panel'), false, 'pl', { immediate:true });
   resetSecondaryPlaylistEdgeGuard();
+  if (typeof updateShelfHoverCueFromPointer === 'function') updateShelfHoverCueFromPointer(null);
+  if (typeof updateShelfCardHoverSelection === 'function') updateShelfCardHoverSelection(null);
+  var volume = document.getElementById('volume-control');
+  var quality = document.getElementById('quality-control');
+  if (volume) volume.classList.remove('open');
+  if (quality) quality.classList.remove('open');
+  closeUploadTip(false);
   closeMiniQueue();
   controlsHovering = false;
-  setControlsHidden(true);
+  if (immersiveMode || controlsAutoHide) setControlsHidden(true);
+  if (typeof clearCursorAutoHideTimer === 'function') clearCursorAutoHideTimer();
+  if (typeof setCursorHidden === 'function') setCursorHidden(false);
   setFocusZone(null, true);
 }
 window.addEventListener('mousemove', function(e){
@@ -26887,9 +27087,11 @@ window.addEventListener('mousemove', function(e){
   }
   setFocusZone(newFocus, newFocus === 'queue');
 });
-window.addEventListener('blur', clearImmersivePointerUi);
+document.documentElement.addEventListener('pointerleave', function(e){
+  if (didPointerExitViewport(e)) clearTransientPointerUi('root-pointerleave');
+});
 window.addEventListener('mouseout', function(e){
-  if (!e.relatedTarget && !e.toElement) clearImmersivePointerUi();
+  if (didPointerExitViewport(e)) clearTransientPointerUi('window-mouseout');
 });
 
 // ============================================================
@@ -27552,13 +27754,15 @@ function systemMediaArtworkType(src) {
 }
 function runSystemMediaAction(action, details) {
   details = details || {};
+  var recoveryAudible = hasAudibleTransitionRecovery();
   if (action === 'play') {
+    if (recoveryAudible) return;
     if ((!audio || !audio.src) && playQueue.length && currentIdx >= 0) return playQueueAt(currentIdx, { manual: true });
     if (audio && (audio.paused || audio.ended)) return attemptAudioPlay({ manual: true });
     return;
   }
   if (action === 'pause') {
-    if (audio && !audio.paused && !audio.ended) return togglePlay();
+    if (recoveryAudible || (audio && !audio.paused && !audio.ended)) return togglePlay();
     return;
   }
   if (action === 'previoustrack') return prevTrack();
@@ -27571,6 +27775,9 @@ function runSystemMediaAction(action, details) {
   } else if (action === 'seekforward') {
     audio.currentTime = Math.min(getPlaybackDurationSeconds() || Infinity, audio.currentTime + (Number(details.seekOffset) || 10));
   } else if (action === 'stop') {
+    if (recoveryAudible && window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
+      window.MineradioTransitionV153.cancel('pause-intent');
+    }
     audio.pause();
     audio.currentTime = 0;
   }
@@ -27610,7 +27817,7 @@ function syncSystemMediaIntegration(force) {
   var song = typeof currentCoverSong === 'function' ? currentCoverSong() : null;
   var meta = currentDesktopSongMeta();
   var hasTrack = !!(song || audio && audio.src);
-  var isPlaying = !!(audio && audio.src && !audio.paused && !audio.ended);
+  var isPlaying = hasAudibleTransitionRecovery() || !!(audio && audio.src && !audio.paused && !audio.ended);
   var artwork = systemMediaArtworkUrl(meta.cover);
   var metadataKey = [hasTrack, meta.title, meta.artist, meta.album, artwork].join('|');
   if ((force || metadataKey !== systemMediaSyncState.metadataKey) && navigator.mediaSession) {
@@ -28507,6 +28714,7 @@ animate();
 <script src="js/v140.js"></script>
 <script src="js/v150.js"></script>
 <script src="js/v150-audio.js"></script>
+<script src="js/v153-transition.js"></script>
 <script src="js/v150-accessibility.js"></script>
 </body>
 </html>

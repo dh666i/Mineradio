@@ -55,6 +55,14 @@
     }
   }
 
+  function notifyTransitionChange() {
+    try {
+      window.dispatchEvent(new CustomEvent('mineradio:audio-transition-change', {
+        detail: Object.assign({}, settings.transition),
+      }));
+    } catch (_) {}
+  }
+
   function toast(message) {
     if (typeof window.showToast === 'function') window.showToast(message);
   }
@@ -625,6 +633,7 @@
       '</div>',
       '<div class="v150-audio-section">',
       '<div class="v150-audio-section-title">切歌准备</div>',
+      '<div class="settings-field"><span><b>切歌过渡</b><small>无缝衔接会提前准备下一首；播客始终使用普通切歌</small></span><select id="v150-transition-mode"><option value="off">关闭</option><option value="gapless">无缝衔接</option><option value="crossfade-3">交叉淡化 3 秒</option><option value="crossfade-5">交叉淡化 5 秒</option><option value="crossfade-8">交叉淡化 8 秒</option></select></div>',
       '<label class="settings-row"><span><b>预取下一首</b><small>预取网易云播放地址和媒体元数据，减少切歌等待；不会下载整首</small></span><input id="v150-prefetch-enabled" type="checkbox"></label>',
       '</div>',
       '<button id="v150-audio-reset" class="modal-btn v150-audio-reset" type="button">恢复音频默认设置</button>'
@@ -723,6 +732,12 @@
       refreshOutputDevices({ userInitiated: true, apply: true });
     });
     byId('v150-output-authorize').addEventListener('click', requestOutputPermission);
+    byId('v150-transition-mode').addEventListener('change', function (event) {
+      settings = audioSettingsCore.applyTransitionChoice(settings, event.target.value);
+      saveSettings();
+      syncUi();
+      notifyTransitionChange();
+    });
     byId('v150-prefetch-enabled').addEventListener('change', function (event) {
       settings.prefetch.enabled = !!event.target.checked;
       saveSettings();
@@ -735,6 +750,7 @@
       saveSettings();
       clearSourcePrefetch();
       applyAudioSettings();
+      notifyTransitionChange();
       refreshOutputDevices({ apply: true });
       setStatus('success', '音频设置已恢复默认值');
       toast('已恢复音频默认设置');
@@ -789,6 +805,7 @@
     var preamp = byId('v150-preamp');
     var preampValue = byId('v150-preamp-value');
     var prefetch = byId('v150-prefetch-enabled');
+    var transition = byId('v150-transition-mode');
     if (eqEnabled) eqEnabled.checked = settings.eq.enabled;
     if (preset) preset.value = settings.eq.preset;
     all('[data-v150-eq-index]').forEach(function (input) {
@@ -808,6 +825,7 @@
       preampValue.textContent = (settings.loudness.preampDb > 0 ? '+' : '') + settings.loudness.preampDb + ' dB';
     }
     if (prefetch) prefetch.checked = settings.prefetch.enabled;
+    if (transition) transition.value = audioSettingsCore.transitionChoice(settings.transition);
     renderOutputDevices();
     updateGainStageText();
     var status = byId('v150-audio-status');
@@ -849,6 +867,7 @@
         saveSettings();
         clearSourcePrefetch();
         applyAudioSettings();
+        notifyTransitionChange();
       },
       refreshOutputDevices: refreshOutputDevices,
       applyOutputDevice: applyOutputDevice,
@@ -862,6 +881,7 @@
           outputLabelsAvailable: outputLabelsAvailable,
           outputCapability: outputCapability(),
           sourcePrefetchCached: sourceCache.size,
+          transition: Object.assign({}, settings.transition),
         };
       },
     };

@@ -15,6 +15,8 @@
   var EQ_MAX_DB = 12;
   var PREAMP_MIN_DB = -12;
   var PREAMP_MAX_DB = 6;
+  var TRANSITION_MODES = ['off', 'gapless', 'crossfade'];
+  var CROSSFADE_DURATIONS = [3, 5, 8];
   var PRESET_GAINS = {
     flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     bass: [6, 5, 3.5, 2, 0.5, -0.5, -1, -0.5, 0, 0],
@@ -62,6 +64,10 @@
       prefetch: {
         enabled: true,
       },
+      transition: {
+        mode: 'gapless',
+        durationSeconds: 0,
+      },
     };
   }
 
@@ -79,6 +85,40 @@
       if (!isFinite(raw)) raw = finite(fallback[index], 0);
       return round(clamp(raw, EQ_MIN_DB, EQ_MAX_DB), 1);
     });
+  }
+
+  function normalizeTransition(value) {
+    var defaults = { mode: 'gapless', durationSeconds: 0 };
+    value = value && typeof value === 'object' ? value : {};
+    var mode = String(value.mode || defaults.mode).toLowerCase();
+    if (TRANSITION_MODES.indexOf(mode) < 0) mode = defaults.mode;
+    var durationSeconds = Number(value.durationSeconds);
+    if (mode === 'crossfade') {
+      if (CROSSFADE_DURATIONS.indexOf(durationSeconds) < 0) durationSeconds = 5;
+    } else {
+      durationSeconds = 0;
+    }
+    return {
+      mode: mode,
+      durationSeconds: durationSeconds,
+    };
+  }
+
+  function transitionChoice(value) {
+    var transition = normalizeTransition(value);
+    return transition.mode === 'crossfade'
+      ? 'crossfade-' + transition.durationSeconds
+      : transition.mode;
+  }
+
+  function applyTransitionChoice(settings, choice) {
+    var next = normalizeSettings(settings);
+    choice = String(choice || '').toLowerCase();
+    var match = /^crossfade-(3|5|8)$/.exec(choice);
+    next.transition = normalizeTransition(match
+      ? { mode: 'crossfade', durationSeconds: Number(match[1]) }
+      : { mode: choice, durationSeconds: 0 });
+    return next;
   }
 
   function gainsMatch(left, right, tolerance) {
@@ -106,6 +146,7 @@
     var loudness = value.loudness && typeof value.loudness === 'object' ? value.loudness : {};
     var output = value.output && typeof value.output === 'object' ? value.output : {};
     var prefetch = value.prefetch && typeof value.prefetch === 'object' ? value.prefetch : {};
+    var transition = normalizeTransition(value.transition);
     var preset = String(eq.preset || defaults.eq.preset).toLowerCase();
     if (PRESET_NAMES.indexOf(preset) < 0 && preset !== 'custom') preset = defaults.eq.preset;
     var gains = preset === 'custom'
@@ -129,6 +170,7 @@
       prefetch: {
         enabled: prefetch.enabled !== false,
       },
+      transition: transition,
     };
   }
 
@@ -227,6 +269,8 @@
     EQ_MAX_DB: EQ_MAX_DB,
     PREAMP_MIN_DB: PREAMP_MIN_DB,
     PREAMP_MAX_DB: PREAMP_MAX_DB,
+    TRANSITION_MODES: TRANSITION_MODES.slice(),
+    CROSSFADE_DURATIONS: CROSSFADE_DURATIONS.slice(),
     PRESET_NAMES: PRESET_NAMES.slice(),
     PRESET_GAINS: PRESET_NAMES.reduce(function (result, name) {
       result[name] = clonePreset(name);
@@ -236,6 +280,9 @@
     normalizeSettings: normalizeSettings,
     normalizeDeviceId: normalizeDeviceId,
     normalizeGains: normalizeGains,
+    normalizeTransition: normalizeTransition,
+    transitionChoice: transitionChoice,
+    applyTransitionChoice: applyTransitionChoice,
     gainsMatch: gainsMatch,
     detectPreset: detectPreset,
     applyPreset: applyPreset,

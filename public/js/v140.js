@@ -541,7 +541,10 @@
   var queueRenderFollowCurrent = true;
   var queueRenderQueueRef = playQueue;
 
-  function playbackWasActive() { return !!(audio && audio.src && !audio.paused && !audio.ended); }
+  function playbackWasActive() {
+    return !!(audio && audio.src && !audio.paused && !audio.ended)
+      || (typeof window.hasAudibleTransitionRecovery === 'function' && window.hasAudibleTransitionRecovery());
+  }
   function updatePlaybackPresence() {
     var song = selectedSong() || activePlaybackSong;
     document.body.classList.toggle('v140-has-playback', !!song);
@@ -574,6 +577,9 @@
     if (typeof syncSystemMediaIntegration === 'function') syncSystemMediaIntegration(true);
   }
   function stopAudioForQueueChange(nextSong) {
+    if (window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
+      window.MineradioTransitionV153.cancel('queue-stop');
+    }
     trackSwitchToken++;
     try {
       if (audio) {
@@ -634,7 +640,8 @@
       seconds: Math.max(0, finite(restored.state.positionSeconds, 0))
     };
     renderSelectedSongPaused(playQueue[currentIdx]);
-    if (typeof switchPlaybackVisualToEmily === 'function') switchPlaybackVisualToEmily();
+    if (typeof revealRestoredPlaybackVisual === 'function') revealRestoredPlaybackVisual();
+    else if (typeof switchPlaybackVisualToEmily === 'function') switchPlaybackVisualToEmily();
     if (typeof updatePlayModeButton === 'function') updatePlayModeButton(false);
     renderQueuePanelV140({ animate: false, preserveWindow: true });
     showToast(pendingResume.seconds > 1 ? '已恢复上次队列和播放位置' : '已恢复上次队列');
@@ -1123,6 +1130,7 @@
 
   var podcastRate = clamp(finite(localStorage.getItem(PODCAST_RATE_KEY), 1), .5, 2.5);
   var sleepState = { mode: 'off', timer: null, endsAt: 0 };
+  window.getMineradioSleepMode = function () { return sleepState.mode; };
   var legacyPlayQueueAt = window.playQueueAt;
   function syncPodcastControls() {
     var song = selectedSong() || activePlaybackSong;
@@ -1200,6 +1208,9 @@
       sleepState.endsAt = Date.now() + next * 60000;
       sleepState.timer = setTimeout(function () {
         sleepState.timer = null;
+        if (window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
+          window.MineradioTransitionV153.cancel('pause-intent');
+        }
         if (audio && !audio.paused) audio.pause();
         playing = false;
         setPlayIcon(false);
@@ -1207,7 +1218,12 @@
         showToast('睡眠定时已停止播放');
       }, next * 60000);
       showToast(next + ' 分钟后停止播放');
-    } else if (next === 'track') showToast('将在本首播放完毕后停止');
+    } else if (next === 'track') {
+      if (window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
+        window.MineradioTransitionV153.cancel('stop-after-current-enabled');
+      }
+      showToast('将在本首播放完毕后停止');
+    }
     else showToast('睡眠定时已关闭');
     updateSleepButton();
     installSleepEndedGuard();
@@ -1357,7 +1373,7 @@
   function updateSettingsVersion() {
     var node = byId('settings-version');
     if (!node) return;
-    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.3';
+    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.4';
     node.textContent = 'Mineradio v' + current + (updatePreviewState && updatePreviewState.checkStatus === 'available' ? (' · 可更新至 v' + updatePreviewState.version) : '');
   }
   function activateSettingsTab(name, focus) {

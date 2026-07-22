@@ -12,6 +12,7 @@ test('default settings are conservative and enable next-track prefetch', () => {
   assert.equal(settings.loudness.enabled, false);
   assert.equal(settings.output.deviceId, 'default');
   assert.equal(settings.prefetch.enabled, true);
+  assert.deepEqual(settings.transition, { mode: 'gapless', durationSeconds: 0 });
 
   const stage = audioSettings.computeGainStage(settings);
   assert.equal(stage.processingEnabled, false);
@@ -32,6 +33,28 @@ test('normalizeSettings clamps malformed values and keeps custom gains', () => {
   assert.equal(settings.loudness.preampDb, 6);
   assert.equal(settings.output.deviceId, 'speakers');
   assert.equal(settings.prefetch.enabled, false);
+  assert.deepEqual(settings.transition, { mode: 'gapless', durationSeconds: 0 });
+});
+
+test('transition settings normalize legacy, supported, and malformed values', () => {
+  assert.deepEqual(audioSettings.normalizeTransition(null), { mode: 'gapless', durationSeconds: 0 });
+  assert.deepEqual(audioSettings.normalizeTransition({ mode: 'off', durationSeconds: 8 }), { mode: 'off', durationSeconds: 0 });
+  assert.deepEqual(audioSettings.normalizeTransition({ mode: 'gapless', durationSeconds: 5 }), { mode: 'gapless', durationSeconds: 0 });
+  assert.deepEqual(audioSettings.normalizeTransition({ mode: 'crossfade', durationSeconds: 3 }), { mode: 'crossfade', durationSeconds: 3 });
+  assert.deepEqual(audioSettings.normalizeTransition({ mode: 'crossfade', durationSeconds: 8 }), { mode: 'crossfade', durationSeconds: 8 });
+  assert.deepEqual(audioSettings.normalizeTransition({ mode: 'crossfade', durationSeconds: 4 }), { mode: 'crossfade', durationSeconds: 5 });
+  assert.deepEqual(audioSettings.normalizeTransition({ mode: 'invalid', durationSeconds: 8 }), { mode: 'gapless', durationSeconds: 0 });
+});
+
+test('transition choices round trip through persisted settings', () => {
+  ['off', 'gapless', 'crossfade-3', 'crossfade-5', 'crossfade-8'].forEach((choice) => {
+    const settings = audioSettings.applyTransitionChoice(audioSettings.defaultSettings(), choice);
+    assert.equal(audioSettings.transitionChoice(settings.transition), choice);
+    assert.deepEqual(audioSettings.normalizeSettings(settings).transition, settings.transition);
+  });
+
+  const invalid = audioSettings.applyTransitionChoice(audioSettings.defaultSettings(), 'crossfade-4');
+  assert.deepEqual(invalid.transition, { mode: 'gapless', durationSeconds: 0 });
 });
 
 test('known preset replaces stale persisted gains', () => {
