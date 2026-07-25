@@ -482,18 +482,12 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home{bottom:126px}
 #user-btn.logged-out:hover{color:#fff2bd;border-color:rgba(244,210,138,.56);background:rgba(244,210,138,.11);box-shadow:0 16px 42px rgba(244,210,138,.10),inset 0 1px 0 rgba(255,255,255,.10)}
 #user-btn .login-word{display:block;line-height:1;transform:translateY(.5px)}
 #user-btn.logged-in{padding:0 16px 0 4px;min-width:0;color:#fff;border-color:rgba(244,210,138,0.52);background:rgba(244,210,138,0.07);box-shadow:0 0 0 1px rgba(244,210,138,.08),0 14px 42px rgba(0,0,0,.28)}
-#user-btn.multi-account{height:auto;min-width:0;padding:0;flex-direction:column;align-items:flex-end;gap:7px;border:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
-#user-btn.multi-account:hover{background:transparent;border-color:transparent;box-shadow:none;transform:none;color:#fff}
 #user-avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;background:rgba(255,255,255,0.1)}
 #user-vip-tag{font-size:9px;padding:2px 6px;border-radius:3px;background:linear-gradient(135deg,#fff3c2,var(--champagne),#c9963d);color:#201303;font-weight:800;letter-spacing:.5px;box-shadow:0 0 12px rgba(244,210,138,.24)}
 #user-vip-tag.qq{background:linear-gradient(135deg,#e7fff9,#00f5d4,#61a8ff);color:#03100f;box-shadow:0 0 12px rgba(0,245,212,.22)}
 .account-source-dot{width:7px;height:7px;border-radius:50%;background:var(--source-local);box-shadow:0 0 12px currentColor;flex-shrink:0}
 .account-source-dot.netease{background:var(--source-netease);color:var(--source-netease)}
 .account-source-dot.qq{background:var(--source-qq);color:var(--source-qq)}
-.top-account-pill{height:44px;min-width:0;display:flex;align-items:center;gap:8px;padding:0 14px 0 4px;border-radius:24px;border:1px solid rgba(244,210,138,.52);background:rgba(244,210,138,.07);box-shadow:0 0 0 1px rgba(244,210,138,.08),0 14px 42px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.08);transition:background .22s,border-color .22s,box-shadow .22s,transform .22s}
-#user-btn.multi-account:hover .top-account-pill{background:rgba(244,210,138,.10);border-color:rgba(244,210,138,.62);box-shadow:0 0 0 1px rgba(244,210,138,.10),0 16px 44px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.10)}
-.top-account-pill img{width:34px;height:34px;border-radius:50%;object-fit:cover;background:rgba(255,255,255,.08);flex-shrink:0}
-.top-account-name{max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:650;color:rgba(255,255,255,.92)}
 .top-account-vip{font-size:9px;padding:2px 6px;border-radius:3px;background:linear-gradient(135deg,#fff3c2,var(--champagne),#c9963d);color:#201303;font-weight:800;letter-spacing:.5px;box-shadow:0 0 12px rgba(244,210,138,.24);flex-shrink:0}
 .top-account-vip.qq{background:linear-gradient(135deg,#e7fff9,#00f5d4,#61a8ff);color:#03100f;box-shadow:0 0 12px rgba(0,245,212,.22)}
 .update-entry{position:relative;display:none;width:44px;height:44px;border-radius:50%;border:1px solid rgba(244,210,138,.26);background:radial-gradient(circle at 50% 36%,rgba(244,210,138,.14),rgba(255,255,255,.030) 58%,rgba(157,184,207,.020));color:rgba(255,239,190,.94);align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(22px) saturate(1.25);-webkit-backdrop-filter:blur(22px) saturate(1.25);box-shadow:0 14px 38px rgba(0,0,0,.30),0 0 22px rgba(244,210,138,.08),0 0 0 1px rgba(255,255,255,.026),inset 0 1px 0 rgba(255,255,255,.09);transition:border-color .22s,background .22s,color .22s,box-shadow .22s,transform .22s;overflow:visible}
@@ -807,7 +801,7 @@ body.login-guide-active #login-guide-canvas{opacity:1}
 .modal{position:relative;background:linear-gradient(180deg,rgba(24,23,26,0.96),rgba(12,11,12,0.92));border:1px solid rgba(244,210,138,0.16);border-radius:18px;padding:32px;max-width:380px;width:90vw;text-align:center;box-shadow:0 26px 90px rgba(0,0,0,.56),0 0 0 1px rgba(255,255,255,.035),inset 0 1px 0 rgba(255,255,255,.07);will-change:opacity,transform,filter}
 .modal h2{font-size:18px;font-weight:500;letter-spacing:.5px;margin-bottom:18px;color:rgba(255,255,255,0.95)}
 .modal .desc{font-size:12.5px;color:rgba(255,255,255,0.5);margin-bottom:20px;line-height:1.6}
-.dual-login-modal,.dual-user-modal{width:min(470px,92vw);max-width:min(470px,92vw)}
+.account-session-modal{width:min(470px,92vw);max-width:min(470px,92vw)}
 .login-intro{margin:-6px 0 16px;padding:14px 15px;border-radius:14px;border:1px solid rgba(255,255,255,.075);background:linear-gradient(135deg,rgba(255,83,103,.09),rgba(244,210,138,.055),rgba(255,255,255,.025));text-align:left}
 .login-intro-kicker{font-size:10px;font-weight:780;letter-spacing:.18em;color:rgba(244,210,138,.72);text-transform:uppercase;margin-bottom:6px}
 .login-intro-title{font-size:18px;font-weight:760;line-height:1.18;color:rgba(255,255,255,.95);letter-spacing:0;margin-bottom:6px}
@@ -818,7 +812,6 @@ body.login-guide-active #login-guide-canvas{opacity:1}
 .login-platform-tabs button.active,.user-platform-tabs button.active{color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 10px 26px rgba(0,0,0,.20)}
 .login-platform-tabs button.netease.active,.user-platform-tabs button.netease.active{background:rgba(217,91,103,.16);color:#ffd7dc}
 .login-platform-tabs button.qq.active,.user-platform-tabs button.qq.active{background:rgba(191,214,107,.16);color:#f3ffd1}
-.user-platform-tabs button.both.active{background:rgba(244,210,138,.14);color:#fff0bf}
 .qr-shell{position:relative;width:200px;height:200px;margin:0 auto 16px;border-radius:16px}
 #qr-img{width:200px;height:200px;background:#fff;border-radius:14px;margin:0 auto 16px;display:block;padding:10px;box-shadow:0 16px 42px rgba(0,0,0,.32),0 0 0 1px rgba(244,210,138,.18)}
 .qr-shell #qr-img{margin:0}
@@ -853,7 +846,7 @@ body.login-guide-active #login-guide-canvas{opacity:1}
 .account-modal-actions .modal-btn{padding:8px 10px}
 .account-hint{margin-top:10px;font-size:11px;line-height:1.45;color:rgba(255,255,255,.38)}
 .modal .btn-row{display:flex;gap:10px;justify-content:center;margin-top:16px}
-.dual-login-modal .btn-row{flex-wrap:wrap}
+.account-session-modal .btn-row{flex-wrap:wrap}
 .modal-btn{padding:8px 20px;font-size:12.5px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#fff;cursor:pointer;letter-spacing:.5px;transition:all .2s;font-family:inherit}
 .modal-btn:hover{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.3)}
 .modal-btn.primary{background:rgba(244,210,138,0.14);border-color:rgba(244,210,138,0.50);color:var(--champagne)}
@@ -1548,7 +1541,7 @@ html.control-glass-svg-ok #search-box{
   backdrop-filter:url("/#mineradio-search-box-glass-filter") saturate(1)!important;
   -webkit-backdrop-filter:url("/#mineradio-search-box-glass-filter") saturate(1)!important;
 }
-#home-btn,#upload-btn,#visual-guide-btn,#fx-fab,.top-account-pill,#top-right .icon-btn{
+#home-btn,#upload-btn,#visual-guide-btn,#fx-fab,#top-right .icon-btn{
   background:var(--saved-button-glass-bg)!important;
   border-color:transparent!important;
   box-shadow:var(--saved-button-glass-shadow)!important;
@@ -1559,7 +1552,6 @@ html.control-glass-svg-ok #home-btn,
 html.control-glass-svg-ok #upload-btn,
 html.control-glass-svg-ok #visual-guide-btn,
 html.control-glass-svg-ok #fx-fab,
-html.control-glass-svg-ok .top-account-pill,
 html.control-glass-svg-ok #top-right .icon-btn{
   backdrop-filter:var(--saved-button-glass-svg-filter)!important;
   -webkit-backdrop-filter:var(--saved-button-glass-svg-filter)!important;
@@ -1703,7 +1695,6 @@ html.control-glass-svg-ok #home-btn,
 html.control-glass-svg-ok #upload-btn,
 html.control-glass-svg-ok #visual-guide-btn,
 html.control-glass-svg-ok #fx-fab,
-html.control-glass-svg-ok .top-account-pill,
 html.control-glass-svg-ok #top-right .icon-btn{
   backdrop-filter:var(--saved-button-glass-svg-filter)!important;
   -webkit-backdrop-filter:var(--saved-button-glass-svg-filter)!important;
@@ -2554,10 +2545,10 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 登录模态 -->
 <div id="login-modal" class="modal-mask">
-  <div class="modal dual-login-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
-    <div class="login-platform-tabs" id="login-platform-tabs">
-      <button id="login-provider-netease" class="netease active" type="button" onclick="setLoginProvider('netease')">网易云</button>
-      <button id="login-provider-qq" class="qq" type="button" onclick="setLoginProvider('qq')">QQ 音乐</button>
+  <div class="modal account-session-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
+    <div class="login-platform-tabs" id="login-platform-tabs" role="tablist" aria-label="登录平台">
+      <button id="login-provider-netease" class="netease active" type="button" role="tab" aria-selected="true" onclick="setLoginProvider('netease')">网易云</button>
+      <button id="login-provider-qq" class="qq" type="button" role="tab" aria-selected="false" onclick="setLoginProvider('qq')">QQ 音乐</button>
     </div>
     <div class="login-intro">
       <div class="login-intro-kicker">Mineradio</div>
@@ -2581,7 +2572,6 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
     <div class="btn-row">
       <button class="modal-btn" onclick="closeLoginModal()">取消</button>
       <button class="modal-btn" onclick="skipLoginAndFocusSearch()">先搜索一首歌</button>
-      <button id="login-both-btn" class="modal-btn" onclick="requestDualLoginMode()">我两个都要</button>
       <button id="qq-cookie-toggle-btn" class="modal-btn" type="button" onclick="toggleQQCookiePanel()">手动导入</button>
       <button id="refresh-qr-btn" class="modal-btn primary" onclick="refreshQr()">刷新二维码</button>
     </div>
@@ -2590,22 +2580,21 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 用户模态 -->
 <div id="user-modal" class="modal-mask">
-  <div class="modal dual-user-modal" role="dialog" aria-modal="true" aria-labelledby="user-modal-heading">
+  <div class="modal account-session-modal" role="dialog" aria-modal="true" aria-labelledby="user-modal-heading">
     <h2 id="user-modal-heading">账号信息</h2>
     <div id="account-provider-chip" class="account-provider-chip netease"><span class="account-source-dot netease"></span><span>网易云音乐</span></div>
     <img id="user-modal-avatar" style="width:72px;height:72px;border-radius:50%;margin:0 auto 12px;object-fit:cover;background:rgba(255,255,255,0.1);display:block">
     <div id="user-modal-name" style="font-size:15px;margin-bottom:4px"></div>
     <div id="user-modal-vip" style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:20px;letter-spacing:.5px"></div>
-    <div class="user-platform-tabs" id="user-platform-tabs">
-      <button id="user-provider-netease" class="netease active" type="button" onclick="setActiveAccountProvider('netease')">网易云</button>
-      <button id="user-provider-qq" class="qq" type="button" onclick="setActiveAccountProvider('qq')">QQ 音乐</button>
-      <button id="user-provider-both" class="both" type="button" onclick="enableDualAccountView()">我两个都要</button>
+    <div class="user-platform-tabs" id="user-platform-tabs" role="tablist" aria-label="账号平台">
+      <button id="user-provider-netease" class="netease active" type="button" role="tab" aria-selected="true" onclick="setActiveAccountProvider('netease')">网易云</button>
+      <button id="user-provider-qq" class="qq" type="button" role="tab" aria-selected="false" onclick="setActiveAccountProvider('qq')">QQ 音乐</button>
     </div>
     <div class="account-modal-actions">
       <button id="account-add-netease" class="modal-btn" onclick="openProviderLogin('netease')">补登网易云</button>
       <button id="account-add-qq" class="modal-btn" onclick="openProviderLogin('qq')">补登 QQ 音乐</button>
     </div>
-    <div id="account-hint" class="account-hint">QQ 音乐真实登录暂未接入，当前先预览双平台账号交互。</div>
+    <div id="account-hint" class="account-hint">当前显示网易云音乐账号信息。</div>
     <div class="btn-row">
       <button class="modal-btn" onclick="closeUserModal()">关闭</button>
       <button id="account-logout-btn" class="modal-btn primary" onclick="logoutActiveAccount()">退出当前平台</button>
@@ -2870,7 +2859,6 @@ var qqLoginAutoRefreshTimer = null;
 var qqLoginWasLoggedIn = false;
 var loginProvider = 'netease';
 var activeAccountProvider = 'netease';
-var dualAccountMode = false;
 var qqCookieBusy = false;
 var neteaseWebLoginBusy = false;
 var qqWebLoginBusy = false;
@@ -3234,7 +3222,7 @@ function layoutFullscreenDiyZone() {
   var height = innerWidth < 720 ? 48 : 52;
   var left = innerWidth - 510;
   var top = 24;
-  var anchor = document.querySelector('#top-right .top-account-pill') || document.getElementById('user-btn') || document.getElementById('top-right');
+  var anchor = document.getElementById('user-btn');
   if (anchor) {
     var rect = anchor.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
@@ -3264,7 +3252,7 @@ function updateFullscreenDiyPeekFromPointer(x, y) {
     return;
   }
   var rect = layoutFullscreenDiyZone();
-  var anchor = document.querySelector('#top-right .top-account-pill') || document.getElementById('user-btn') || document.getElementById('top-right');
+  var anchor = document.getElementById('user-btn');
   var anchorRect = anchor ? anchor.getBoundingClientRect() : rect;
   var hitLeft = Math.min(rect.left, anchorRect.left) - 26;
   var hitRight = Math.max(rect.left + rect.width, anchorRect.right) + 26;
@@ -18323,7 +18311,7 @@ function rememberSearchQuery(q) {
   writeSearchHistory(items);
 }
 function renderSearchHistory() {
-  if (searchMode !== 'song') return false;
+  if (searchMode !== 'song' && searchMode !== 'netease') return false;
   var items = readSearchHistory();
   if (!items.length) {
     $results.innerHTML = '';
@@ -24798,18 +24786,6 @@ function providerAvatarSrc(provider, status) {
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="' + bg + '"/><circle cx="48" cy="48" r="34" fill="' + fill + '" opacity=".16"/><text x="48" y="56" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="' + fill + '">' + meta.short + '</text></svg>';
   return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
 }
-function renderTopAccountPill(provider) {
-  var st = platformStatus(provider);
-  if (!st || !st.loggedIn) return '';
-  var meta = platformMeta(provider);
-  var displayName = (provider === 'qq' && st.preview) ? '待接入' : (st.nickname || meta.label);
-  var vipTag = providerVipBadge(provider, st);
-  return '<span class="top-account-pill">' +
-    '<img src="' + providerAvatarSrc(provider, st) + '" alt="">' +
-    '<span class="top-account-name">' + escHtml(displayName) + '</span>' +
-    vipTag +
-  '</span>';
-}
 async function refreshLoginStatus(force) {
   try {
     var info = await apiJson('/api/login/status?t=' + Date.now());
@@ -24906,20 +24882,13 @@ function startQQLoginStatusAutoRefresh() {
 function renderUserBtn() {
   var btn = document.getElementById('user-btn');
   if (!btn) return;
-  btn.classList.remove('multi-account');
-  if (dualAccountMode && hasAnyPlatformLogin()) {
-    activeAccountProvider = firstLoggedProvider();
-    btn.classList.add('logged-in', 'multi-account');
-    btn.classList.remove('logged-out');
-    btn.title = '账号信息 · 双平台登录状态';
-    btn.innerHTML = renderTopAccountPill('netease') + renderTopAccountPill('qq');
-  } else if (hasAnyPlatformLogin()) {
+  if (hasAnyPlatformLogin()) {
     activeAccountProvider = firstLoggedProvider();
     var st = platformStatus(activeAccountProvider);
     var meta = platformMeta(activeAccountProvider);
     btn.classList.add('logged-in');
     btn.classList.remove('logged-out');
-    btn.title = dualAccountMode ? '账号信息 · 已启用双平台展示' : ((st.nickname || meta.label) + ' · 账号信息');
+    btn.title = (st.nickname || meta.label) + ' · 账号信息';
     btn.innerHTML = '<img id="user-avatar" src="' + providerAvatarSrc(activeAccountProvider, st) + '">' +
                     '<span>' + escHtml(st.nickname || meta.label) + '</span>' +
                     providerVipBadge(activeAccountProvider, st, 'user-vip-tag');
@@ -24962,8 +24931,14 @@ function updateLoginProviderUi() {
   var neteaseBtn = document.getElementById('login-provider-netease');
   var qqBtn = document.getElementById('login-provider-qq');
   var canOpenNeteaseWeb = !!(window.desktopWindow && typeof window.desktopWindow.openNeteaseMusicLogin === 'function');
-  if (neteaseBtn) neteaseBtn.classList.toggle('active', loginProvider === 'netease');
-  if (qqBtn) qqBtn.classList.toggle('active', isQQ);
+  if (neteaseBtn) {
+    neteaseBtn.classList.toggle('active', loginProvider === 'netease');
+    neteaseBtn.setAttribute('aria-selected', loginProvider === 'netease' ? 'true' : 'false');
+  }
+  if (qqBtn) {
+    qqBtn.classList.toggle('active', isQQ);
+    qqBtn.setAttribute('aria-selected', isQQ ? 'true' : 'false');
+  }
   if (title) title.textContent = '扫码登录' + meta.label;
   if (desc) desc.innerHTML = isQQ
     ? '打开 <b>QQ 音乐官方网页登录窗口</b> 扫码，成功后会自动同步账号会话。'
@@ -25236,16 +25211,17 @@ function updateUserModalUi() {
       vipEl.style.color = hasProviderVip('qq', st) ? 'rgba(0,245,212,0.82)' : 'rgba(0,245,212,0.58)';
     }
   }
-  ['netease','qq','both'].forEach(function(key){
+  ['netease','qq'].forEach(function(key){
     var btn = document.getElementById('user-provider-' + key);
-    if (btn) btn.classList.toggle('active', key === 'both' ? dualAccountMode : (!dualAccountMode && activeAccountProvider === key));
+    if (!btn) return;
+    var selected = activeAccountProvider === key;
+    btn.classList.toggle('active', selected);
+    btn.setAttribute('aria-selected', selected ? 'true' : 'false');
   });
   if (addNetease) addNetease.style.display = hasPlatformLogin('netease') ? 'none' : '';
   if (addQQ) addQQ.textContent = hasPlatformLogin('qq') ? '查看 QQ 音乐' : '补登 QQ 音乐';
   if (logoutBtn) logoutBtn.textContent = activeAccountProvider === 'qq' ? '退出 QQ 音乐' : '退出网易云';
-  if (hint) hint.textContent = dualAccountMode
-    ? '右上角已切换为双平台并排展示。'
-    : '可切换右上角展示的平台；“我两个都要”会并排放两个登录状态。';
+  if (hint) hint.textContent = '当前显示' + meta.label + '账号信息。';
 }
 function showUserModal() {
   if (!hasAnyPlatformLogin()) return showLoginModal();
@@ -25260,30 +25236,8 @@ function setActiveAccountProvider(provider) {
     return;
   }
   activeAccountProvider = provider;
-  dualAccountMode = false;
   renderUserBtn();
   updateUserModalUi();
-}
-function enableDualAccountView() {
-  if (!hasPlatformLogin('netease') && !hasPlatformLogin('qq')) {
-    openProviderLogin('netease');
-    return;
-  }
-  if (!hasPlatformLogin('netease')) {
-    openProviderLogin('netease');
-    return;
-  }
-  if (!hasPlatformLogin('qq')) {
-    openProviderLogin('qq');
-    return;
-  }
-  dualAccountMode = true;
-  renderUserBtn();
-  updateUserModalUi();
-  showToast('已启用双平台账号展示');
-}
-function requestDualLoginMode() {
-  enableDualAccountView();
 }
 function openProviderLogin(provider) {
   provider = provider === 'qq' ? 'qq' : 'netease';
@@ -25302,7 +25256,6 @@ async function logoutActiveAccount() {
     qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: 'QQ 音乐', userId: '', avatar: '', vipType: 0 };
     qqPlaylists = [];
     userPlaylists = userPlaylists.filter(function(pl){ return pl.provider !== 'qq'; });
-    dualAccountMode = false;
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
     if (hasAnyPlatformLogin()) updateUserModalUi();
@@ -25321,7 +25274,6 @@ async function doLogout() {
   } catch (e) {}
   loginStatus = { loggedIn: false };
   resetNeteaseHomeState();
-  if (!hasPlatformLogin('netease') || !hasPlatformLogin('qq')) dualAccountMode = false;
   activeAccountProvider = firstLoggedProvider();
   userPlaylists = qqPlaylists.slice();
   myPodcastCollections = [];

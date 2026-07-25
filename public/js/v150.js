@@ -21,8 +21,9 @@
     closeGsapModal: window.closeGsapModal,
   };
 
-  var SEARCH_TYPES = ['song', 'artist', 'album', 'playlist'];
+  var SEARCH_TYPES = ['all', 'song', 'artist', 'album', 'playlist'];
   var SEARCH_TYPE_LABELS = {
+    all: '综合',
     song: '单曲',
     artist: '歌手',
     album: '专辑',
@@ -41,9 +42,11 @@
   ];
 
   var typedSearch = {
-    type: 'song',
+    type: 'all',
     query: '',
     items: [],
+    sections: null,
+    partialFailures: [],
     offset: 0,
     total: 0,
     hasMore: false,
@@ -74,7 +77,7 @@
     token: 0,
   };
   var metadataEditState = { playlist: null, pid: '' };
-  var searchPlayAllBusy = false;
+  var searchPlayAllBusyToken = 0;
   var searchPlayAllToken = 0;
   var playlistQueueBusy = false;
   var userPlaylistRefreshToken = 0;
@@ -282,6 +285,25 @@
       '.v150-entity-meta{margin-top:5px;font-size:9.8px;color:rgba(255,255,255,.38)}',
       '.v150-entity-open{font-size:18px;color:rgba(255,255,255,.28)}',
       '.v150-search-more{display:block;margin:7px auto 11px}',
+      '.v150-comprehensive{display:grid;gap:4px;padding:3px 0 9px}',
+      '.v150-comprehensive-section{min-width:0;border-bottom:1px solid rgba(255,255,255,.055);padding:4px 5px 8px}',
+      '.v150-comprehensive-section:last-child{border-bottom:0}',
+      '.v150-comprehensive-head{display:flex;align-items:center;gap:8px;min-height:34px;padding:2px 6px}',
+      '.v150-comprehensive-head strong{font-size:11px;color:rgba(255,255,255,.84)}',
+      '.v150-comprehensive-head span{font-size:9.5px;color:rgba(255,255,255,.34)}',
+      '.v150-comprehensive-head button{margin-left:auto;height:25px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:rgba(var(--fc-accent-rgb),.74);font:650 9.5px/1 inherit;cursor:pointer}',
+      '.v150-comprehensive-head button+button{margin-left:0}',
+      '.v150-comprehensive-head button:hover,.v150-comprehensive-head button:focus-visible{background:rgba(var(--fc-accent-rgb),.08);color:#fff}',
+      '.v150-comprehensive-songs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px}',
+      '.v150-comprehensive-song{min-width:0;display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:56px;padding:6px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}',
+      '.v150-comprehensive-song:hover,.v150-comprehensive-song:focus-visible{background:rgba(255,255,255,.055);outline:none}',
+      '.v150-comprehensive-song img,.v150-comprehensive-song .v150-song-placeholder{width:42px;height:42px;border-radius:6px;object-fit:cover;background:rgba(255,255,255,.055)}',
+      '.v150-comprehensive-song-copy{min-width:0}',
+      '.v150-comprehensive-song-copy strong,.v150-comprehensive-song-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.v150-comprehensive-song-copy strong{font-size:11px;color:rgba(255,255,255,.86)}',
+      '.v150-comprehensive-song-copy span{margin-top:4px;font-size:9.5px;color:rgba(255,255,255,.36)}',
+      '.v150-comprehensive-play{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:rgba(var(--fc-accent-rgb),.11);color:rgba(var(--fc-accent-rgb),.85);font-size:11px}',
+      '.v150-comprehensive-empty{padding:11px 7px;font-size:10px;color:rgba(255,255,255,.3)}',
       '#v150-operation-status{position:fixed;left:50%;bottom:96px;z-index:80;max-width:min(480px,calc(100vw - 32px));padding:9px 13px;border:1px solid rgba(255,255,255,.10);border-radius:7px;background:rgba(10,13,16,.94);box-shadow:0 12px 36px rgba(0,0,0,.4);color:rgba(255,255,255,.76);font-size:10.5px;opacity:0;visibility:hidden;transform:translate(-50%,8px);transition:opacity .18s,transform .18s,visibility .18s}',
       '#v150-operation-status.show{opacity:1;visibility:visible;transform:translate(-50%,0)}',
       '#v150-operation-status.busy{border-color:rgba(var(--fc-accent-rgb),.26)}',
@@ -347,7 +369,7 @@
       '.v150-form-grid textarea{min-height:88px;padding:9px 10px;resize:vertical}',
       '.v150-form-grid input:focus,.v150-form-grid textarea:focus,.v150-form-grid select:focus{border-color:rgba(var(--fc-accent-rgb),.5)}',
       '.v150-form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}',
-      '@media(max-width:820px){.v150-browse-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.v150-entity-grid{grid-template-columns:1fr}.v150-song-row{grid-template-columns:26px 40px minmax(0,1fr) auto}.v150-song-album{display:none}}',
+      '@media(max-width:820px){.v150-browse-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.v150-entity-grid,.v150-comprehensive-songs{grid-template-columns:1fr}.v150-song-row{grid-template-columns:26px 40px minmax(0,1fr) auto}.v150-song-album{display:none}}',
       '@media(max-width:560px){.v150-discover-modal{width:100vw;height:100vh;max-height:none;border-radius:0}.v150-discover-head{padding:14px}.v150-discover-body{padding:12px}.v150-browse-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.v150-playlist-hero{grid-template-columns:82px minmax(0,1fr)}.v150-playlist-cover{width:82px;height:82px}.v150-playlist-title{font-size:16px}}',
     ].join('');
     document.head.appendChild(style);
@@ -463,6 +485,8 @@
   function resetTypedSearch(clearQuery) {
     typedSearch.token += 1;
     typedSearch.items = [];
+    typedSearch.sections = null;
+    typedSearch.partialFailures = [];
     typedSearch.offset = 0;
     typedSearch.total = 0;
     typedSearch.hasMore = false;
@@ -480,7 +504,7 @@
     var input = byId('search-input');
     var query = input ? input.value.trim() : '';
     if (query) window.doSearch(query);
-    else if (type === 'song' && typeof window.renderSearchHistory === 'function') window.renderSearchHistory();
+    else if (typeof window.renderSearchHistory === 'function') window.renderSearchHistory();
   }
   window.setNeteaseSearchType = setNeteaseSearchType;
 
@@ -491,6 +515,21 @@
         ? ['albums', 'items', 'results']
         : ['playlists', 'items', 'results']);
     return experience.pageItems(payload, keys);
+  }
+
+  function entityCardMarkup(item, type, index, comprehensive) {
+    var cover = coverOf(item);
+    var coverMarkup = cover
+      ? '<img class="v150-entity-cover" src="' + html(cover) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
+      : '<span class="v150-entity-cover"></span>';
+    var attribute = comprehensive
+      ? ' data-v150-comprehensive-type="' + type + '" data-v150-comprehensive-index="' + index + '"'
+      : ' data-v150-typed-index="' + index + '"';
+    return '<button class="v150-entity-card ' + type + '" type="button"' + attribute + '>' +
+      coverMarkup +
+      '<span class="v150-entity-copy"><span class="v150-entity-name">' + html(item.name || item.title || '未命名') + '</span>' +
+      '<span class="v150-entity-meta">' + html(typedEntityMeta(item, type)) + '</span></span>' +
+      '<span class="v150-entity-open" aria-hidden="true">›</span></button>';
   }
 
   function typedEntityMeta(item, type) {
@@ -522,6 +561,10 @@
     var results = byId('search-results');
     if (!results) return;
     var type = typedSearch.type;
+    if (type === 'all') {
+      renderComprehensiveSearch();
+      return;
+    }
     if (!typedSearch.items.length) {
       results.innerHTML = typedStateMarkup(
         typedSearch.loading ? '正在搜索' : '没有找到结果',
@@ -535,15 +578,7 @@
       ? typedSearch.items.length + ' / ' + typedSearch.total
       : String(typedSearch.items.length);
     var cards = typedSearch.items.map(function (item, index) {
-      var cover = coverOf(item);
-      var coverMarkup = cover
-        ? '<img class="v150-entity-cover" src="' + html(cover) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
-        : '<span class="v150-entity-cover"></span>';
-      return '<button class="v150-entity-card ' + type + '" type="button" data-v150-typed-index="' + index + '">' +
-        coverMarkup +
-        '<span class="v150-entity-copy"><span class="v150-entity-name">' + html(item.name || item.title || '未命名') + '</span>' +
-        '<span class="v150-entity-meta">' + html(typedEntityMeta(item, type)) + '</span></span>' +
-        '<span class="v150-entity-open" aria-hidden="true">›</span></button>';
+      return entityCardMarkup(item, type, index, false);
     }).join('');
     results.innerHTML =
       '<div class="v150-entity-toolbar"><strong>' + SEARCH_TYPE_LABELS[type] + '</strong><span>' + countLabel + ' 条结果</span></div>' +
@@ -554,10 +589,156 @@
     results.classList.add('show');
   }
 
+  function comprehensiveSection(type) {
+    return typedSearch.sections && typedSearch.sections[type] || {
+      items: [],
+      total: 0,
+      nextOffset: 0,
+      hasMore: false,
+      failed: false,
+    };
+  }
+
+  function comprehensiveSectionHead(type, section) {
+    var count = section.total > section.items.length
+      ? section.items.length + ' / ' + section.total
+      : String(section.items.length);
+    return '<div class="v150-comprehensive-head"><strong>' + SEARCH_TYPE_LABELS[type] + '</strong>' +
+      '<span>' + count + ' 条</span>' +
+      (type === 'song' && section.items.length ? '<button type="button" data-v150-play-comprehensive="1">播放全部</button>' : '') +
+      '<button type="button" data-v150-view-type="' + type + '">查看全部</button></div>';
+  }
+
+  function comprehensiveSongMarkup(song, index) {
+    var cover = coverOf(song);
+    var image = cover
+      ? '<img src="' + html(cover) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
+      : '<span class="v150-song-placeholder"></span>';
+    return '<button class="v150-comprehensive-song" type="button" data-v150-comprehensive-type="song" data-v150-comprehensive-index="' + index + '">' +
+      image + '<span class="v150-comprehensive-song-copy"><strong>' + html(song.name || song.title || '未命名') + '</strong>' +
+      '<span>' + html([artistName(song), song.album || ''].filter(Boolean).join(' · ') || '网易云音乐') + '</span></span>' +
+      '<span class="v150-comprehensive-play" aria-hidden="true">▶</span></button>';
+  }
+
+  function renderComprehensiveSearch() {
+    var results = byId('search-results');
+    if (!results) return;
+    if (!typedSearch.sections) {
+      results.innerHTML = typedStateMarkup(
+        typedSearch.loading ? '正在综合搜索' : '没有找到结果',
+        typedSearch.loading ? '正在同时查找单曲、歌手、专辑和歌单' : '换一个关键词试试',
+        false
+      );
+      results.classList.add('show');
+      return;
+    }
+    var order = ['song', 'artist', 'album', 'playlist'];
+    var sections = order.map(function (type) {
+      var section = comprehensiveSection(type);
+      var body = '';
+      if (section.items.length) {
+        body = type === 'song'
+          ? '<div class="v150-comprehensive-songs">' + section.items.map(comprehensiveSongMarkup).join('') + '</div>'
+          : '<div class="v150-entity-grid">' + section.items.map(function (item, index) {
+              return entityCardMarkup(item, type, index, true);
+            }).join('') + '</div>';
+      } else {
+        body = '<div class="v150-comprehensive-empty">' + (section.failed ? '此分类暂时加载失败' : '没有相关结果') + '</div>';
+      }
+      return '<section class="v150-comprehensive-section" data-v150-section="' + type + '">' +
+        comprehensiveSectionHead(type, section) + body + '</section>';
+    }).join('');
+    var warning = typedSearch.partialFailures.length
+      ? '<div class="search-state search-partial-warning"><strong>' + html(typedSearch.partialFailures.join('、') + '暂时不可用') + '</strong><span>其他分类结果已正常保留</span></div>'
+      : '';
+    results.innerHTML = warning + '<div class="v150-comprehensive">' + sections + '</div>';
+    results.classList.add('show');
+  }
+
+  async function runComprehensiveSearch(query) {
+    query = String(query || '').trim();
+    if (!query) return;
+    if (typedSearch.query !== query) {
+      resetTypedSearch(false);
+      typedSearch.query = query;
+    }
+    if (typedSearch.loading) return;
+    typedSearch.loading = true;
+    var token = ++typedSearch.token;
+    renderTypedSearch();
+    var requests = [
+      { type: 'song', label: '单曲', limit: 8, keys: ['songs', 'items'], url: '/api/search?keywords=' + encodeURIComponent(query) + '&limit=8&offset=0' },
+      { type: 'artist', label: '歌手', limit: 6, keys: ['artists', 'items'], url: '/api/search/typed?keywords=' + encodeURIComponent(query) + '&type=artist&limit=6&offset=0' },
+      { type: 'album', label: '专辑', limit: 6, keys: ['albums', 'items'], url: '/api/search/typed?keywords=' + encodeURIComponent(query) + '&type=album&limit=6&offset=0' },
+      { type: 'playlist', label: '歌单', limit: 6, keys: ['playlists', 'items'], url: '/api/search/typed?keywords=' + encodeURIComponent(query) + '&type=playlist&limit=6&offset=0' },
+    ];
+    try {
+      var settled = await Promise.allSettled(requests.map(function (request) {
+        return window.apiJson(request.url);
+      }));
+      if (token !== typedSearch.token || currentMode() !== 'netease' || typedSearch.type !== 'all') return;
+      var sections = {};
+      var failures = [];
+      var firstError = null;
+      requests.forEach(function (request, index) {
+        var result = settled[index];
+        var payload = result.status === 'fulfilled' ? result.value : null;
+        var payloadFailure = payload && apiError(payload, request.label + '搜索失败');
+        var failed = result.status === 'rejected' || !!payloadFailure;
+        var error = result.status === 'rejected' ? result.reason : payloadFailure;
+        if (failed) {
+          failures.push(request.label);
+          if (!firstError) firstError = error;
+        }
+        var items = failed ? [] : experience.pageItems(payload, request.keys);
+        var total = failed ? 0 : experience.pageTotal(payload, items.length);
+        var responseLimit = Math.max(1, finite(payload && payload.limit, request.limit));
+        var responseOffset = Math.max(0, finite(payload && payload.offset, 0));
+        var nextOffset = failed
+          ? 0
+          : finite(payload && payload.nextOffset, responseOffset + responseLimit);
+        sections[request.type] = {
+          items: items,
+          total: total,
+          nextOffset: nextOffset,
+          hasMore: !failed && experience.pageHasMore(
+            payload,
+            nextOffset,
+            total,
+            items.length,
+            responseLimit
+          ),
+          failed: failed,
+        };
+      });
+      if (failures.length === requests.length) throw firstError || new Error('综合搜索失败');
+      typedSearch.sections = sections;
+      typedSearch.partialFailures = failures;
+      typedSearch.items = sections.song.items.slice();
+      typedSearch.total = requests.reduce(function (total, request) {
+        return total + (sections[request.type].total || 0);
+      }, 0);
+      typedSearch.hasMore = false;
+      window.playlist = sections.song.items.map(clone);
+      if (typeof window.rememberSearchQuery === 'function') window.rememberSearchQuery(query);
+      renderTypedSearch();
+    } catch (error) {
+      if (token !== typedSearch.token) return;
+      var results = byId('search-results');
+      if (results) {
+        results.innerHTML = typedStateMarkup('综合搜索失败', errorText(error), true);
+        results.classList.add('show');
+      }
+    } finally {
+      if (token === typedSearch.token) typedSearch.loading = false;
+    }
+  }
+
   async function runTypedSearch(query, append) {
     query = String(query || '').trim();
     if (!query) return;
     var type = typedSearch.type;
+    if (type === 'all') return runComprehensiveSearch(query);
     if (type === 'song') return legacy.doSearch(query);
     if (!append || typedSearch.query !== query) {
       resetTypedSearch(false);
@@ -616,10 +797,10 @@
     }
   }
 
-  function openTypedEntity(index) {
-    var item = typedSearch.items[index];
+  function openTypedItem(item, type) {
     if (!item) return;
-    if (typedSearch.type === 'artist') {
+    if (type === 'song') return;
+    if (type === 'artist') {
       if (typeof window.openArtistDetailForSong === 'function') {
         window.openArtistDetailForSong({
           id: 'artist:' + String(item.id || ''),
@@ -631,32 +812,59 @@
           cover: coverOf(item),
         });
       }
-    } else if (typedSearch.type === 'album') {
+    } else if (type === 'album') {
       if (typeof window.openAlbumDetail === 'function') window.openAlbumDetail(item);
-    } else if (typedSearch.type === 'playlist') {
+    } else if (type === 'playlist') {
       openNeteasePlaylistDetail(item);
     }
     var results = byId('search-results');
     if (results) results.classList.remove('show');
   }
 
-  async function playAllNeteaseSearchResults() {
-    if (searchPlayAllBusy) return;
+  function openTypedEntity(index) {
+    openTypedItem(typedSearch.items[index], typedSearch.type);
+  }
+
+  function openComprehensiveEntity(type, index) {
+    var section = comprehensiveSection(type);
+    var item = section.items[index];
+    if (!item) return;
+    if (type === 'song') {
+      window.playlist = section.items.map(clone);
+      if (typeof window.playSearchResult === 'function') window.playSearchResult(index);
+      return;
+    }
+    openTypedItem(item, type);
+  }
+
+  async function playAllNeteaseSearchResults(options) {
+    if (searchPlayAllBusyToken && searchPlayAllBusyToken === searchPlayAllToken) return;
+    options = options || {};
     var state = window.__mineradioV140Search || {};
-    var query = String(state.query || (byId('search-input') && byId('search-input').value) || '').trim();
-    if (!query || !window.playlist || !window.playlist.length) return legacy.playAllSearchResults();
-    var expectedTotal = Math.max(finite(state.neteaseTotal, 0), finite(state.total, 0));
-    var shouldContinue = state.neteaseHasMore !== false || state.hasMore || expectedTotal > window.playlist.length;
+    var expectedType = options.expectedType || 'song';
+    var query = String(options.query || state.query || (byId('search-input') && byId('search-input').value) || '').trim();
+    var sourceItems = Array.isArray(options.initialItems) ? options.initialItems : window.playlist;
+    if (!query || !sourceItems || !sourceItems.length) return legacy.playAllSearchResults();
+    var initial = sourceItems.slice();
+    window.playlist = initial.map(clone);
+    var expectedTotal = options.total == null
+      ? Math.max(finite(state.neteaseTotal, 0), finite(state.total, 0))
+      : Math.max(initial.length, finite(options.total, initial.length));
+    var shouldContinue = typeof options.hasMore === 'boolean'
+      ? options.hasMore || expectedTotal > initial.length
+      : state.neteaseHasMore !== false || state.hasMore || expectedTotal > initial.length;
     if (!shouldContinue) return legacy.playAllSearchResults();
 
-    searchPlayAllBusy = true;
     var operationToken = ++searchPlayAllToken;
-    var initial = window.playlist.slice();
-    var startOffset = Math.max(0, finite(state.neteaseOffset, initial.length));
+    searchPlayAllBusyToken = operationToken;
+    var startOffset = Math.max(0, finite(
+      options.offset,
+      state.neteaseOffset == null ? initial.length : state.neteaseOffset
+    ));
     var expectedMode = currentMode();
     function throwIfPlayAllCancelled() {
       var activeQuery = String((byId('search-input') && byId('search-input').value) || '').trim();
-      if (operationToken === searchPlayAllToken && currentMode() === expectedMode && typedSearch.type === 'song' && activeQuery === query) return;
+      if (operationToken === searchPlayAllToken && currentMode() === expectedMode && typedSearch.type === expectedType && activeQuery === query) return;
       var cancelled = new Error('SEARCH_PLAY_ALL_CANCELLED');
       cancelled.cancelled = true;
       throw cancelled;
@@ -679,9 +887,9 @@
         offset: startOffset,
         total: expectedTotal,
         hasMore: true,
-        limit: 100,
+        limit: 50,
         maxItems: 5000,
-        maxPages: 80,
+        maxPages: 100,
         keys: ['songs'],
         key: itemKey,
         onPage: function (progress) {
@@ -695,11 +903,13 @@
       });
       throwIfPlayAllCancelled();
       window.playlist = result.items.map(clone);
-      state.neteaseOffset = result.nextOffset;
-      state.neteaseHasMore = !result.complete;
-      state.hasMore = !result.complete;
-      state.neteaseTotal = result.total;
-      state.total = result.total;
+      if (expectedType === 'song') {
+        state.neteaseOffset = result.nextOffset;
+        state.neteaseHasMore = !result.complete;
+        state.hasMore = !result.complete;
+        state.neteaseTotal = result.total;
+        state.total = result.total;
+      }
       if (result.truncated) {
         showOperation('结果过多，已载入前 ' + result.items.length + ' 首', 'error');
       } else {
@@ -709,13 +919,13 @@
       hideOperationSoon();
     } catch (error) {
       if (error && error.cancelled) {
-        hideOperationSoon();
+        if (searchPlayAllBusyToken === operationToken) hideOperationSoon();
         return;
       }
       try {
         throwIfPlayAllCancelled();
       } catch (cancelledError) {
-        hideOperationSoon();
+        if (searchPlayAllBusyToken === operationToken) hideOperationSoon();
         return;
       }
       var partial = error && error.partialResult && error.partialResult.items || initial;
@@ -724,7 +934,7 @@
       if (partial.length) legacy.playAllSearchResults();
       else if (typeof window.showToast === 'function') window.showToast(errorText(error, '搜索结果加载失败'));
     } finally {
-      searchPlayAllBusy = false;
+      if (searchPlayAllBusyToken === operationToken) searchPlayAllBusyToken = 0;
     }
   }
 
@@ -1594,9 +1804,28 @@
     if (results) {
       results.addEventListener('click', function (event) {
         var entity = event.target && event.target.closest && event.target.closest('[data-v150-typed-index]');
+        var comprehensive = event.target && event.target.closest && event.target.closest('[data-v150-comprehensive-type]');
+        var playComprehensive = event.target && event.target.closest && event.target.closest('[data-v150-play-comprehensive]');
+        var viewType = event.target && event.target.closest && event.target.closest('[data-v150-view-type]');
         var more = event.target && event.target.closest && event.target.closest('[data-v150-load-more-typed]');
         var retry = event.target && event.target.closest && event.target.closest('[data-v150-retry-typed]');
         if (entity) openTypedEntity(finite(entity.getAttribute('data-v150-typed-index'), -1));
+        else if (playComprehensive) {
+          var songSection = comprehensiveSection('song');
+          playAllNeteaseSearchResults({
+            expectedType: 'all',
+            query: typedSearch.query,
+            initialItems: songSection.items,
+            total: songSection.total,
+            offset: songSection.nextOffset,
+            hasMore: songSection.hasMore,
+          });
+        }
+        else if (comprehensive) openComprehensiveEntity(
+          comprehensive.getAttribute('data-v150-comprehensive-type'),
+          finite(comprehensive.getAttribute('data-v150-comprehensive-index'), -1)
+        );
+        else if (viewType) setNeteaseSearchType(viewType.getAttribute('data-v150-view-type'));
         else if (more) runTypedSearch(typedSearch.query, true);
         else if (retry) runTypedSearch(typedSearch.query, false);
       });
@@ -1604,13 +1833,9 @@
     var searchInput = byId('search-input');
     if (searchInput) {
       searchInput.addEventListener('input', function () {
-        if (searchInput.value.trim() || currentMode() !== 'netease' || typedSearch.type === 'song') return;
+        if (currentMode() !== 'netease' || typedSearch.type === 'song') return;
+        searchPlayAllToken += 1;
         resetTypedSearch(true);
-        var panel = byId('search-results');
-        if (panel) {
-          panel.innerHTML = '';
-          panel.classList.remove('show');
-        }
       });
     }
 

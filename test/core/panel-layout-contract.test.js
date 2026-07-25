@@ -77,6 +77,13 @@ test('settings exposes an About page with the packaged feedback QR', () => {
   assert.ok(fs.statSync(qrPath).size > 1000);
 });
 
+test('settings contains no account or service provider page', () => {
+  const settings = sourceBetween(indexSource, '<div id="settings-modal"', '<div id="album-detail-modal"');
+  assert.doesNotMatch(settings, /data-settings-(?:tab|page)="(?:account|accounts|service|services|provider|providers)"/i);
+  assert.doesNotMatch(settings, /账号与服务|账号和服务|音乐服务|音源服务/);
+  assert.doesNotMatch(settings, /YouTube|OAuth/i);
+});
+
 test('inline playlist detail is not rendered as a nested glass panel', () => {
   assert.match(v140Styles, /#playlist-panel \.pl-inline-detail,[\s\S]*?background:\s*transparent\s*!important;[\s\S]*?box-shadow:\s*none\s*!important;/);
 });
