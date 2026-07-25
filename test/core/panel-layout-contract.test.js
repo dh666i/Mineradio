@@ -99,6 +99,15 @@ test('expanded playlist actions keep the collapse control compact', () => {
   assert.match(v140Styles, /#playlist-panel \.pl-detail-collapse-btn\s*\{[\s\S]*?flex:\s*0 0 30px/);
 });
 
+test('provider badges use full Chinese platform names', () => {
+  assert.match(indexSource, /\.tag-source\{[^}]*letter-spacing:0;[^}]*white-space:nowrap/);
+  assert.match(indexSource, /\.daily-recommend-row \.source\{[^}]*letter-spacing:0;[^}]*white-space:nowrap/);
+  assert.match(indexSource, /var sourceLabel = provider === 'qq' \? 'QQ音乐' : '网易云';/);
+  assert.match(indexSource, /'<span class="source">网易云<\/span>'/);
+  assert.match(indexSource, /var label = key === 'qq' \? 'QQ音乐' : '网易云';/);
+  assert.match(indexSource, /var providerLabel = provider === 'qq' \? 'QQ音乐' : '网易云';/);
+});
+
 test('stage lyric layout modes are wired through UI and persisted settings', () => {
   assert.match(indexSource, /id="lyric-layout-seg"/);
   assert.match(indexSource, /data-lyric-layout="auto"/);
