@@ -1,10 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const {
-  normalizeInstalledClientConfig,
-  publicClientConfig,
-} = require('../lib/youtube-oauth');
 
 function findNewestRceditInCache(cacheRoot) {
   if (!cacheRoot || !fs.existsSync(cacheRoot)) return null;
@@ -45,41 +41,8 @@ function resolveRcedit(projectDir) {
   return hit;
 }
 
-function injectGoogleOAuthClient(context) {
-  const mode = String(process.env.MINERADIO_GOOGLE_OAUTH_MODE || 'auto').trim().toLowerCase();
-  const sourcePath = String(process.env.MINERADIO_GOOGLE_OAUTH_CLIENT_FILE || '').trim();
-  const required = mode === 'required';
-  if (!sourcePath || !fs.existsSync(sourcePath)) {
-    if (required) {
-      throw new Error('Google Desktop OAuth client is required for this release build. Configure MINERADIO_GOOGLE_OAUTH_CLIENT_FILE.');
-    }
-    console.log('  • YouTube direct login not injected (no release OAuth client configured)');
-    return;
-  }
-
-  const stat = fs.statSync(sourcePath);
-  if (!stat.isFile() || stat.size <= 0 || stat.size > 1024 * 1024) {
-    throw new Error('Google Desktop OAuth client file is empty or unexpectedly large.');
-  }
-  const normalized = normalizeInstalledClientConfig(fs.readFileSync(sourcePath, 'utf8'));
-  const visible = publicClientConfig(normalized);
-  const targetDir = path.join(context.appOutDir, 'resources', 'mineradio-config');
-  const targetPath = path.join(targetDir, 'youtube-oauth-client.json');
-  fs.mkdirSync(targetDir, { recursive: true });
-  fs.writeFileSync(targetPath, JSON.stringify({
-    installed: {
-      client_id: normalized.clientId,
-      client_secret: normalized.clientSecret,
-      project_id: normalized.projectId,
-    },
-  }), { encoding: 'utf8', mode: 0o600 });
-  console.log(`  • injected Google Desktop OAuth client  project=${visible.projectId || 'default'} client=${visible.clientIdHint}`);
-}
-
 module.exports = async function afterPack(context) {
   if (context.electronPlatformName !== 'win32') return;
-
-  injectGoogleOAuthClient(context);
 
   const appName = context.packager.appInfo.productFilename || 'Mineradio';
   const exePath = path.join(context.appOutDir, `${appName}.exe`);

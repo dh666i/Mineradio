@@ -18,12 +18,6 @@ win-unpacked/
 # User data and private state
 .cookie
 .qq-cookie
-.youtube-api-key
-.youtube-api-key.*
-.youtube-oauth-client
-.youtube-oauth-client.*
-.youtube-oauth-token
-.youtube-oauth-token.*
 updates/
 backups/
 *.log
@@ -31,8 +25,6 @@ backups/
 *.cache
 .env
 .env.*
-/client_secret_*.json
-/google-oauth-desktop.json
 
 # Local code-signing material
 .cert/

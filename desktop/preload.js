@@ -30,8 +30,6 @@ contextBridge.exposeInMainWorld('desktopWindow', {
   exportDiagnostics: (payload) => ipcRenderer.invoke('mineradio-export-diagnostics', payload || {}),
   exportJsonFile: (payload) => ipcRenderer.invoke('mineradio-export-json-file', payload || {}),
   importJsonFile: () => ipcRenderer.invoke('mineradio-import-json-file'),
-  openYouTubeOAuth: (targetUrl) => ipcRenderer.invoke('youtube-oauth-open', targetUrl),
-  openYouTubeContent: (targetUrl) => ipcRenderer.invoke('youtube-content-open', targetUrl),
   onGlobalHotkey: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload || {});

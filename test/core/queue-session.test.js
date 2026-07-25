@@ -168,24 +168,6 @@ test('serializeQueueSnapshot produces JSON without stream URLs', () => {
   assert.equal(parsed.queue[0].url, undefined);
 });
 
-test('YouTube external results are never persisted in the playback queue', () => {
-  const item = {
-    id: 'video-1',
-    videoId: 'video-1',
-    provider: 'youtube',
-    source: 'youtube',
-    type: 'youtube',
-    name: 'Track',
-    artist: 'Channel',
-  };
-  assert.equal(queueSession.isExternalOnlySong(item), true);
-  assert.equal(queueSession.queueItemKey(item), '');
-  const snapshot = queueSession.createQueueSnapshot({ queue: [item], currentIndex: 0 });
-  assert.deepEqual(snapshot.queue, []);
-  assert.equal(snapshot.currentIndex, -1);
-  assert.equal(snapshot.currentKey, '');
-});
-
 test('restoreQueueSnapshot migrates a legacy v0 session', () => {
   const restored = queueSession.restoreQueueSnapshot({
     playQueue: [song(1), song(2)],

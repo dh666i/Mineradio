@@ -69,7 +69,6 @@ test('paused session restoration reveals visuals without starting playback', () 
 
 test('settings exposes an About page with the packaged feedback QR', () => {
   assert.match(indexSource, /data-settings-tab="update">关于<\/button>/);
-  assert.doesNotMatch(indexSource, /data-settings-(?:tab|page)="services"|账号与服务|v155-service-panel/);
   assert.match(indexSource, /<h3>关于 Mineradio<\/h3>/);
   assert.match(indexSource, /assets\/wechat-feedback-qr\.png/);
   assert.match(indexSource, /有功能或优化建议，添加此微信反馈。/);

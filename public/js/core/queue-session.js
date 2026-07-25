@@ -43,16 +43,8 @@
     return Math.max(min, Math.min(max, value));
   }
 
-  function isExternalOnlySong(song) {
-    if (!song || typeof song !== 'object') return false;
-    return song.externalOnly === true
-      || song.provider === 'youtube'
-      || song.source === 'youtube'
-      || song.type === 'youtube';
-  }
-
   function queueItemKey(song) {
-    if (!song || isExternalOnlySong(song)) return '';
+    if (!song) return '';
     if (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq') {
       var qqId = song.mid || song.songmid || song.id || '';
       if (qqId) return 'qq:' + qqId;
@@ -102,7 +94,6 @@
 
   function isRestorableSong(song) {
     if (!song || typeof song !== 'object') return false;
-    if (isExternalOnlySong(song)) return false;
     var local = song.type === 'local' || !!song.localKey;
     if (local && !(song.filePath || song.persistentPath || song.path)) return false;
     return !!queueItemKey(song);
@@ -491,7 +482,6 @@
   return {
     SCHEMA_VERSION: SCHEMA_VERSION,
     DEFAULT_MAX_AGE_MS: DEFAULT_MAX_AGE_MS,
-    isExternalOnlySong: isExternalOnlySong,
     queueItemKey: queueItemKey,
     sanitizeSong: sanitizeSong,
     createQueueSnapshot: createQueueSnapshot,

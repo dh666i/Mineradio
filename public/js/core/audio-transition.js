@@ -88,17 +88,8 @@
       || !!song.localUrl;
   }
 
-  function isExternalOnlySong(song) {
-    if (!song || typeof song !== 'object') return false;
-    var type = cleanText(song.type).toLowerCase();
-    var source = cleanText(song.source).toLowerCase();
-    var provider = cleanText(song.provider).toLowerCase();
-    return song.externalOnly === true || provider === 'youtube' || source === 'youtube' || type === 'youtube';
-  }
-
   function songStableKey(song) {
     if (!song || typeof song !== 'object') return '';
-    if (isExternalOnlySong(song)) return '';
     var type = cleanText(song.type).toLowerCase();
     var source = cleanText(song.source).toLowerCase();
     var provider = cleanText(song.provider).toLowerCase();
@@ -172,7 +163,6 @@
     if (currentIndex < 0 || currentIndex >= queue.length || nextIndex < 0 || nextIndex >= queue.length || !currentSong || !nextSong) {
       return resultFor('missing_track', details);
     }
-    if (isExternalOnlySong(currentSong) || isExternalOnlySong(nextSong)) return resultFor('external_only_track', details);
     if (isPodcastSong(currentSong) || isPodcastSong(nextSong)) return resultFor('podcast_track', details);
     if (isLocalSong(currentSong) || isLocalSong(nextSong)) return resultFor('local_track', details);
     if (!currentKey || !nextKey) return resultFor('unstable_track_key', details);
@@ -221,7 +211,6 @@
     resolveNaturalNextIndex: resolveNaturalNextIndex,
     isPodcastSong: isPodcastSong,
     isLocalSong: isLocalSong,
-    isExternalOnlySong: isExternalOnlySong,
     songStableKey: songStableKey,
     songDurationSeconds: songDurationSeconds,
     minimumCrossfadeTrackSeconds: minimumCrossfadeTrackSeconds,

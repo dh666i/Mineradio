@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mineradio</title>
-<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="referrer" content="no-referrer">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&family=UnifrakturCook:wght@700&display=swap" rel="stylesheet">
 <script src="vendor/three.r128.min.js"></script>
 <script src="vendor/music-tempo.min.js"></script>
@@ -212,7 +212,7 @@ body.empty-home-active.diy-mode #search-area:not(.has-results) #search-mode-tabs
 .search-artist-link:hover{color:#fff;text-decoration:underline;text-underline-offset:3px}
 .tag-vip{display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;background:linear-gradient(135deg,#fff3c2,var(--champagne),#c9963d);color:#201303;font-weight:700;letter-spacing:.5px;flex-shrink:0;box-shadow:0 0 10px rgba(244,210,138,.22)}
 .tag-podcast{display:inline-block;font-size:9px;padding:1px 6px;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.58);font-weight:750;letter-spacing:.7px;flex-shrink:0}
-.tag-source{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);font-size:8.5px;font-weight:800;letter-spacing:0;line-height:1;white-space:nowrap;flex-shrink:0}
+.tag-source{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);font-size:8.5px;font-weight:800;letter-spacing:.55px;line-height:1;flex-shrink:0}
 .tag-source.netease{color:#ffd8dd;border-color:rgba(217,91,103,.30);background:rgba(217,91,103,.075)}
 .tag-source.qq{color:#f0ffc8;border-color:rgba(191,214,107,.30);background:rgba(191,214,107,.075)}
 .search-result.qq-source:hover{background:rgba(191,214,107,.052)}
@@ -482,12 +482,18 @@ body.desktop-shell.empty-home-active.controls-visible #empty-home{bottom:126px}
 #user-btn.logged-out:hover{color:#fff2bd;border-color:rgba(244,210,138,.56);background:rgba(244,210,138,.11);box-shadow:0 16px 42px rgba(244,210,138,.10),inset 0 1px 0 rgba(255,255,255,.10)}
 #user-btn .login-word{display:block;line-height:1;transform:translateY(.5px)}
 #user-btn.logged-in{padding:0 16px 0 4px;min-width:0;color:#fff;border-color:rgba(244,210,138,0.52);background:rgba(244,210,138,0.07);box-shadow:0 0 0 1px rgba(244,210,138,.08),0 14px 42px rgba(0,0,0,.28)}
+#user-btn.multi-account{height:auto;min-width:0;padding:0;flex-direction:column;align-items:flex-end;gap:7px;border:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+#user-btn.multi-account:hover{background:transparent;border-color:transparent;box-shadow:none;transform:none;color:#fff}
 #user-avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;background:rgba(255,255,255,0.1)}
 #user-vip-tag{font-size:9px;padding:2px 6px;border-radius:3px;background:linear-gradient(135deg,#fff3c2,var(--champagne),#c9963d);color:#201303;font-weight:800;letter-spacing:.5px;box-shadow:0 0 12px rgba(244,210,138,.24)}
 #user-vip-tag.qq{background:linear-gradient(135deg,#e7fff9,#00f5d4,#61a8ff);color:#03100f;box-shadow:0 0 12px rgba(0,245,212,.22)}
 .account-source-dot{width:7px;height:7px;border-radius:50%;background:var(--source-local);box-shadow:0 0 12px currentColor;flex-shrink:0}
 .account-source-dot.netease{background:var(--source-netease);color:var(--source-netease)}
 .account-source-dot.qq{background:var(--source-qq);color:var(--source-qq)}
+.top-account-pill{height:44px;min-width:0;display:flex;align-items:center;gap:8px;padding:0 14px 0 4px;border-radius:24px;border:1px solid rgba(244,210,138,.52);background:rgba(244,210,138,.07);box-shadow:0 0 0 1px rgba(244,210,138,.08),0 14px 42px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.08);transition:background .22s,border-color .22s,box-shadow .22s,transform .22s}
+#user-btn.multi-account:hover .top-account-pill{background:rgba(244,210,138,.10);border-color:rgba(244,210,138,.62);box-shadow:0 0 0 1px rgba(244,210,138,.10),0 16px 44px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.10)}
+.top-account-pill img{width:34px;height:34px;border-radius:50%;object-fit:cover;background:rgba(255,255,255,.08);flex-shrink:0}
+.top-account-name{max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:650;color:rgba(255,255,255,.92)}
 .top-account-vip{font-size:9px;padding:2px 6px;border-radius:3px;background:linear-gradient(135deg,#fff3c2,var(--champagne),#c9963d);color:#201303;font-weight:800;letter-spacing:.5px;box-shadow:0 0 12px rgba(244,210,138,.24);flex-shrink:0}
 .top-account-vip.qq{background:linear-gradient(135deg,#e7fff9,#00f5d4,#61a8ff);color:#03100f;box-shadow:0 0 12px rgba(0,245,212,.22)}
 .update-entry{position:relative;display:none;width:44px;height:44px;border-radius:50%;border:1px solid rgba(244,210,138,.26);background:radial-gradient(circle at 50% 36%,rgba(244,210,138,.14),rgba(255,255,255,.030) 58%,rgba(157,184,207,.020));color:rgba(255,239,190,.94);align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(22px) saturate(1.25);-webkit-backdrop-filter:blur(22px) saturate(1.25);box-shadow:0 14px 38px rgba(0,0,0,.30),0 0 22px rgba(244,210,138,.08),0 0 0 1px rgba(255,255,255,.026),inset 0 1px 0 rgba(255,255,255,.09);transition:border-color .22s,background .22s,color .22s,box-shadow .22s,transform .22s;overflow:visible}
@@ -801,14 +807,18 @@ body.login-guide-active #login-guide-canvas{opacity:1}
 .modal{position:relative;background:linear-gradient(180deg,rgba(24,23,26,0.96),rgba(12,11,12,0.92));border:1px solid rgba(244,210,138,0.16);border-radius:18px;padding:32px;max-width:380px;width:90vw;text-align:center;box-shadow:0 26px 90px rgba(0,0,0,.56),0 0 0 1px rgba(255,255,255,.035),inset 0 1px 0 rgba(255,255,255,.07);will-change:opacity,transform,filter}
 .modal h2{font-size:18px;font-weight:500;letter-spacing:.5px;margin-bottom:18px;color:rgba(255,255,255,0.95)}
 .modal .desc{font-size:12.5px;color:rgba(255,255,255,0.5);margin-bottom:20px;line-height:1.6}
-.account-login-modal,.account-user-modal{width:min(470px,92vw);max-width:min(470px,92vw)}
-#login-modal [hidden]{display:none!important}
+.dual-login-modal,.dual-user-modal{width:min(470px,92vw);max-width:min(470px,92vw)}
+.login-intro{margin:-6px 0 16px;padding:14px 15px;border-radius:14px;border:1px solid rgba(255,255,255,.075);background:linear-gradient(135deg,rgba(255,83,103,.09),rgba(244,210,138,.055),rgba(255,255,255,.025));text-align:left}
+.login-intro-kicker{font-size:10px;font-weight:780;letter-spacing:.18em;color:rgba(244,210,138,.72);text-transform:uppercase;margin-bottom:6px}
+.login-intro-title{font-size:18px;font-weight:760;line-height:1.18;color:rgba(255,255,255,.95);letter-spacing:0;margin-bottom:6px}
+.login-intro-body{font-size:12px;line-height:1.58;color:rgba(255,255,255,.56)}
 .login-platform-tabs,.user-platform-tabs{display:flex;gap:8px;margin:0 auto 18px;padding:4px;border-radius:999px;border:1px solid rgba(255,255,255,.075);background:rgba(255,255,255,.035)}
 .login-platform-tabs button,.user-platform-tabs button{flex:1;min-width:0;height:32px;border:0;border-radius:999px;background:transparent;color:rgba(255,255,255,.48);font-family:inherit;font-size:11.5px;font-weight:700;letter-spacing:.45px;cursor:pointer;transition:background .22s,color .22s,box-shadow .22s,transform .22s;white-space:nowrap}
 .login-platform-tabs button:hover,.user-platform-tabs button:hover{color:rgba(255,255,255,.82)}
 .login-platform-tabs button.active,.user-platform-tabs button.active{color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 10px 26px rgba(0,0,0,.20)}
 .login-platform-tabs button.netease.active,.user-platform-tabs button.netease.active{background:rgba(217,91,103,.16);color:#ffd7dc}
 .login-platform-tabs button.qq.active,.user-platform-tabs button.qq.active{background:rgba(191,214,107,.16);color:#f3ffd1}
+.user-platform-tabs button.both.active{background:rgba(244,210,138,.14);color:#fff0bf}
 .qr-shell{position:relative;width:200px;height:200px;margin:0 auto 16px;border-radius:16px}
 #qr-img{width:200px;height:200px;background:#fff;border-radius:14px;margin:0 auto 16px;display:block;padding:10px;box-shadow:0 16px 42px rgba(0,0,0,.32),0 0 0 1px rgba(244,210,138,.18)}
 .qr-shell #qr-img{margin:0}
@@ -843,7 +853,7 @@ body.login-guide-active #login-guide-canvas{opacity:1}
 .account-modal-actions .modal-btn{padding:8px 10px}
 .account-hint{margin-top:10px;font-size:11px;line-height:1.45;color:rgba(255,255,255,.38)}
 .modal .btn-row{display:flex;gap:10px;justify-content:center;margin-top:16px}
-.account-login-modal .btn-row{flex-wrap:wrap}
+.dual-login-modal .btn-row{flex-wrap:wrap}
 .modal-btn{padding:8px 20px;font-size:12.5px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#fff;cursor:pointer;letter-spacing:.5px;transition:all .2s;font-family:inherit}
 .modal-btn:hover{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.3)}
 .modal-btn.primary{background:rgba(244,210,138,0.14);border-color:rgba(244,210,138,0.50);color:var(--champagne)}
@@ -867,7 +877,7 @@ body.login-guide-active #login-guide-canvas{opacity:1}
 .daily-recommend-row .name,.daily-recommend-row .artist,.daily-recommend-row .album{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .daily-recommend-row .name{font-size:12.5px;font-weight:680;color:rgba(255,255,255,.90)}
 .daily-recommend-row .artist,.daily-recommend-row .album{font-size:10.5px;color:rgba(255,255,255,.38);margin-top:4px}
-.daily-recommend-row .source{font-size:9px;font-weight:760;letter-spacing:0;white-space:nowrap;color:#ffd7dc;border:1px solid rgba(217,91,103,.24);background:rgba(217,91,103,.08);border-radius:999px;padding:4px 7px}
+.daily-recommend-row .source{font-size:9px;font-weight:760;letter-spacing:.08em;color:#ffd7dc;border:1px solid rgba(217,91,103,.24);background:rgba(217,91,103,.08);border-radius:999px;padding:4px 7px}
 .daily-recommend-empty{min-height:260px;display:flex;align-items:center;justify-content:center;padding:28px;text-align:center;font-size:12px;line-height:1.7;color:rgba(255,255,255,.42)}
 @media (max-width:680px){.daily-recommend-modal{height:92vh}.daily-recommend-head{grid-template-columns:1fr;padding:20px}.daily-recommend-actions{flex-wrap:wrap}.daily-recommend-row{grid-template-columns:24px 42px minmax(0,1fr) auto}.daily-recommend-row .album{display:none}}
 .cover-crop-modal{width:min(720px,92vw);max-width:min(720px,92vw);padding:28px;text-align:left}
@@ -1538,7 +1548,7 @@ html.control-glass-svg-ok #search-box{
   backdrop-filter:url("/#mineradio-search-box-glass-filter") saturate(1)!important;
   -webkit-backdrop-filter:url("/#mineradio-search-box-glass-filter") saturate(1)!important;
 }
-#home-btn,#upload-btn,#visual-guide-btn,#fx-fab,#top-right .icon-btn{
+#home-btn,#upload-btn,#visual-guide-btn,#fx-fab,.top-account-pill,#top-right .icon-btn{
   background:var(--saved-button-glass-bg)!important;
   border-color:transparent!important;
   box-shadow:var(--saved-button-glass-shadow)!important;
@@ -1549,6 +1559,7 @@ html.control-glass-svg-ok #home-btn,
 html.control-glass-svg-ok #upload-btn,
 html.control-glass-svg-ok #visual-guide-btn,
 html.control-glass-svg-ok #fx-fab,
+html.control-glass-svg-ok .top-account-pill,
 html.control-glass-svg-ok #top-right .icon-btn{
   backdrop-filter:var(--saved-button-glass-svg-filter)!important;
   -webkit-backdrop-filter:var(--saved-button-glass-svg-filter)!important;
@@ -1692,6 +1703,7 @@ html.control-glass-svg-ok #home-btn,
 html.control-glass-svg-ok #upload-btn,
 html.control-glass-svg-ok #visual-guide-btn,
 html.control-glass-svg-ok #fx-fab,
+html.control-glass-svg-ok .top-account-pill,
 html.control-glass-svg-ok #top-right .icon-btn{
   backdrop-filter:var(--saved-button-glass-svg-filter)!important;
   -webkit-backdrop-filter:var(--saved-button-glass-svg-filter)!important;
@@ -1884,7 +1896,6 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 }
 </style>
 <link rel="stylesheet" href="css/v140.css">
-<link rel="stylesheet" href="css/v155.css">
 </head>
 <body>
 <div id="desktop-window-shell">
@@ -1954,7 +1965,6 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
     <div id="search-mode-tabs" class="search-mode-tabs" role="tablist" aria-label="搜索范围">
       <button id="search-mode-song" class="active" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('song')" aria-selected="true">综合</button>
       <button id="search-mode-netease" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('netease')" aria-selected="false">网易云</button>
-      <button id="search-mode-youtube" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('youtube')" aria-selected="false">YouTube Music</button>
       <button id="search-mode-qq" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('qq')" aria-selected="false">QQ 音乐</button>
       <button id="search-mode-podcast" type="button" role="tab" aria-controls="search-results" onclick="setSearchMode('podcast')" aria-selected="false">播客</button>
     </div>
@@ -2544,11 +2554,15 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 登录模态 -->
 <div id="login-modal" class="modal-mask">
-  <div class="modal account-login-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
-    <div class="login-platform-tabs" id="login-platform-tabs" role="tablist" aria-label="登录平台">
-      <button id="login-provider-netease" class="netease active" type="button" role="tab" aria-selected="true" onclick="setLoginProvider('netease')">网易云</button>
-      <button id="login-provider-qq" class="qq" type="button" role="tab" aria-selected="false" onclick="setLoginProvider('qq')">QQ 音乐</button>
-      <button id="login-provider-youtube" class="youtube" type="button" role="tab" aria-selected="false" onclick="setLoginProvider('youtube')">YouTube</button>
+  <div class="modal dual-login-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
+    <div class="login-platform-tabs" id="login-platform-tabs">
+      <button id="login-provider-netease" class="netease active" type="button" onclick="setLoginProvider('netease')">网易云</button>
+      <button id="login-provider-qq" class="qq" type="button" onclick="setLoginProvider('qq')">QQ 音乐</button>
+    </div>
+    <div class="login-intro">
+      <div class="login-intro-kicker">Mineradio</div>
+      <div class="login-intro-title">音乐播放器，也是一座视觉舞台</div>
+      <div class="login-intro-body">搜索或导入一首歌即可播放；登录后会同步歌单、红心和播客，让封面、歌词和粒子跟着音乐动起来。</div>
     </div>
     <h2 id="login-modal-title">扫码登录网易云音乐</h2>
     <div id="login-modal-desc" class="desc">使用 <b>网易云音乐 App</b> 扫码，可同步歌单、红心与播客。</div>
@@ -2557,20 +2571,6 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
       <button id="qq-web-login-card" class="qq-login-mark" type="button" onclick="openProviderWebLogin()"><b>QQ</b><span>打开官方扫码窗口</span></button>
     </div>
     <div id="qr-status">正在生成二维码…</div>
-    <div id="youtube-main-login-panel" class="v155-main-login-panel" hidden>
-      <div class="v155-main-login-mark" aria-hidden="true">YT</div>
-      <div class="v155-main-login-copy">
-        <img id="youtube-main-login-avatar" class="v155-main-login-avatar" alt="" referrerpolicy="no-referrer" hidden>
-        <div>
-          <b id="youtube-main-login-name">YouTube Music</b>
-          <span id="youtube-main-login-status" role="status" aria-live="polite">正在读取账号状态...</span>
-        </div>
-      </div>
-      <div class="v155-main-login-actions">
-        <button id="youtube-main-login-primary" class="modal-btn primary" type="button">登录 YouTube</button>
-        <button id="youtube-main-login-cancel" class="modal-btn" type="button" hidden>取消登录</button>
-      </div>
-    </div>
     <div id="qq-cookie-panel" class="qq-cookie-panel">
       <textarea id="qq-cookie-input" class="qq-cookie-input" spellcheck="false" autocomplete="off" placeholder="uin=...; qqmusic_key=...; qm_keyst=..."></textarea>
       <div class="qq-cookie-actions">
@@ -2581,6 +2581,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
     <div class="btn-row">
       <button class="modal-btn" onclick="closeLoginModal()">取消</button>
       <button class="modal-btn" onclick="skipLoginAndFocusSearch()">先搜索一首歌</button>
+      <button id="login-both-btn" class="modal-btn" onclick="requestDualLoginMode()">我两个都要</button>
       <button id="qq-cookie-toggle-btn" class="modal-btn" type="button" onclick="toggleQQCookiePanel()">手动导入</button>
       <button id="refresh-qr-btn" class="modal-btn primary" onclick="refreshQr()">刷新二维码</button>
     </div>
@@ -2589,27 +2590,22 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
 
 <!-- 用户模态 -->
 <div id="user-modal" class="modal-mask">
-  <div class="modal account-user-modal" role="dialog" aria-modal="true" aria-labelledby="user-modal-heading">
+  <div class="modal dual-user-modal" role="dialog" aria-modal="true" aria-labelledby="user-modal-heading">
     <h2 id="user-modal-heading">账号信息</h2>
     <div id="account-provider-chip" class="account-provider-chip netease"><span class="account-source-dot netease"></span><span>网易云音乐</span></div>
     <img id="user-modal-avatar" style="width:72px;height:72px;border-radius:50%;margin:0 auto 12px;object-fit:cover;background:rgba(255,255,255,0.1);display:block">
     <div id="user-modal-name" style="font-size:15px;margin-bottom:4px"></div>
     <div id="user-modal-vip" style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:20px;letter-spacing:.5px"></div>
-    <div class="user-platform-tabs" id="user-platform-tabs" role="tablist" aria-label="账号平台">
-      <button id="user-provider-netease" class="netease active" type="button" role="tab" aria-selected="true" onclick="setActiveAccountProvider('netease')">网易云</button>
-      <button id="user-provider-qq" class="qq" type="button" role="tab" aria-selected="false" onclick="setActiveAccountProvider('qq')">QQ 音乐</button>
-      <button id="user-provider-youtube" class="youtube" type="button" role="tab" aria-selected="false" onclick="setActiveAccountProvider('youtube')">YouTube</button>
+    <div class="user-platform-tabs" id="user-platform-tabs">
+      <button id="user-provider-netease" class="netease active" type="button" onclick="setActiveAccountProvider('netease')">网易云</button>
+      <button id="user-provider-qq" class="qq" type="button" onclick="setActiveAccountProvider('qq')">QQ 音乐</button>
+      <button id="user-provider-both" class="both" type="button" onclick="enableDualAccountView()">我两个都要</button>
     </div>
     <div class="account-modal-actions">
       <button id="account-add-netease" class="modal-btn" onclick="openProviderLogin('netease')">补登网易云</button>
       <button id="account-add-qq" class="modal-btn" onclick="openProviderLogin('qq')">补登 QQ 音乐</button>
-      <div id="account-youtube-content" class="v155-user-account-content" hidden>
-        <button class="modal-btn" type="button" onclick="openYouTubeAccountView('playlists')">我的歌单</button>
-        <button class="modal-btn" type="button" onclick="openYouTubeAccountView('likes')">喜欢的视频</button>
-        <button class="modal-btn" type="button" onclick="openYouTubeAccountView('subscriptions')">订阅频道</button>
-      </div>
     </div>
-    <div id="account-hint" class="account-hint">当前显示网易云音乐账号信息。</div>
+    <div id="account-hint" class="account-hint">QQ 音乐真实登录暂未接入，当前先预览双平台账号交互。</div>
     <div class="btn-row">
       <button class="modal-btn" onclick="closeUserModal()">关闭</button>
       <button id="account-logout-btn" class="modal-btn primary" onclick="logoutActiveAccount()">退出当前平台</button>
@@ -2715,7 +2711,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">发现新版本</div>
-          <div id="update-modal-version" class="update-version">v1.5.5</div>
+          <div id="update-modal-version" class="update-version">v1.5.4</div>
         </div>
         <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
@@ -2874,6 +2870,7 @@ var qqLoginAutoRefreshTimer = null;
 var qqLoginWasLoggedIn = false;
 var loginProvider = 'netease';
 var activeAccountProvider = 'netease';
+var dualAccountMode = false;
 var qqCookieBusy = false;
 var neteaseWebLoginBusy = false;
 var qqWebLoginBusy = false;
@@ -3008,8 +3005,8 @@ var updatePreviewState = {
   installerPath: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '1.5.5',
-  version: '1.5.5',
+  currentVersion: '1.5.4',
+  version: '1.5.4',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -3237,7 +3234,7 @@ function layoutFullscreenDiyZone() {
   var height = innerWidth < 720 ? 48 : 52;
   var left = innerWidth - 510;
   var top = 24;
-  var anchor = document.getElementById('user-btn') || document.getElementById('top-right');
+  var anchor = document.querySelector('#top-right .top-account-pill') || document.getElementById('user-btn') || document.getElementById('top-right');
   if (anchor) {
     var rect = anchor.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
@@ -3267,7 +3264,7 @@ function updateFullscreenDiyPeekFromPointer(x, y) {
     return;
   }
   var rect = layoutFullscreenDiyZone();
-  var anchor = document.getElementById('user-btn') || document.getElementById('top-right');
+  var anchor = document.querySelector('#top-right .top-account-pill') || document.getElementById('user-btn') || document.getElementById('top-right');
   var anchorRect = anchor ? anchor.getBoundingClientRect() : rect;
   var hitLeft = Math.min(rect.left, anchorRect.left) - 26;
   var hitRight = Math.max(rect.left + rect.width, anchorRect.right) + 26;
@@ -9874,10 +9871,7 @@ function getLyricLineProgress(line, nextLine, now) {
     }
     return 1;
   }
-  var playbackDuration = typeof getPlaybackDurationSeconds === 'function'
-    ? getPlaybackDurationSeconds()
-    : (audio && audio.duration) || 0;
-  var nextT = nextLine && nextLine.t > line.t ? nextLine.t : Math.min(playbackDuration || now + 4, line.t + (line.duration || 4.8));
+  var nextT = nextLine && nextLine.t > line.t ? nextLine.t : Math.min((audio && audio.duration) || now + 4, line.t + (line.duration || 4.8));
   var span = Math.max(0.75, nextT - line.t);
   var prog = Math.max(0, Math.min(1, (now - line.t) / span));
   return prog * prog * (3 - 2 * prog);
@@ -9888,7 +9882,7 @@ function tickLyricsParticles() {
     if (stageLyrics.current || stageLyrics.currentText || (stageLyrics.outgoing && stageLyrics.outgoing.length)) clearStageLyrics();
     return;
   }
-  if (!playing || !lyricsLines.length) {
+  if (!playing || !audio || !lyricsLines.length) {
     if (stageLyrics.current) {
       stageLyrics.current.userData.state = 'out';
       stageLyrics.current.userData.age = 0;
@@ -9901,9 +9895,7 @@ function tickLyricsParticles() {
     }
     return;
   }
-  var t = typeof getPlaybackCurrentSeconds === 'function'
-    ? getPlaybackCurrentSeconds()
-    : (audio && audio.currentTime) || 0;
+  var t = audio.currentTime;
   var newIdx = -1;
   for (var i = 0; i < lyricsLines.length; i++) {
     if (lyricsLines[i].t <= t + 0.05) newIdx = i; else break;
@@ -9922,10 +9914,7 @@ function tickLyricsParticles() {
     }
     if (stageLyrics.current) {
       var firstLine = lyricsLines[0];
-      var introDuration = typeof getPlaybackDurationSeconds === 'function'
-        ? getPlaybackDurationSeconds()
-        : (audio && audio.duration) || 0;
-      var introEnd = firstLine && firstLine.t > 0 ? firstLine.t : Math.min(introDuration || 4.8, 4.8);
+      var introEnd = firstLine && firstLine.t > 0 ? firstLine.t : Math.min((audio && audio.duration) || 4.8, 4.8);
       var introLine = { t:0, text:introText, duration:Math.max(0.8, introEnd), charCount:Math.max(1, introText.length), fallback:true };
       updateLyricMeshProgress(stageLyrics.current, getLyricLineProgress(introLine, null, t));
     }
@@ -13624,7 +13613,7 @@ function makeShelfManager() {
       var source = activePlaylists();
       var items = source.map(function(pl){
         var provider = pl.provider === 'qq' ? 'qq' : 'netease';
-        var sourceLabel = provider === 'qq' ? 'QQ音乐' : '网易云';
+        var sourceLabel = provider === 'qq' ? 'QQ' : 'NE';
         return { type:'playlist', title: pl.name, sub:sourceLabel + ' · ' + (pl.trackCount||0)+' 首 · 播放 '+compactCount(pl.playCount||0),
           cover: pl.cover || '', tag: pl.subscribed ? '收藏歌单' : '我的歌单', playlistId: (provider === 'qq' ? 'qq:' : '') + pl.id, provider: provider };
       });
@@ -16067,7 +16056,7 @@ function renderDailyRecommendDetail() {
       '<span class="index">' + String(index + 1).padStart(2, '0') + '</span>' + coverHtml +
       '<span class="track"><span class="name">' + escHtml(song.name || '未知歌曲') + '</span><span class="artist">' + escHtml(song.artist || '未知歌手') + '</span></span>' +
       '<span class="album">' + escHtml(song.album || '网易云音乐') + '</span>' +
-      '<span class="source">网易云</span>' +
+      '<span class="source">NE</span>' +
     '</button>';
   }).join('');
 }
@@ -16126,30 +16115,20 @@ function beginListenSession(song, context) {
     context: context || activeRadioContext || null,
     startedAt: Date.now(),
     lastWallAt: Date.now(),
-    lastAudioTime: typeof getPlaybackCurrentSeconds === 'function' ? getPlaybackCurrentSeconds() : (audio && isFinite(audio.currentTime) ? audio.currentTime : 0),
+    lastAudioTime: audio && isFinite(audio.currentTime) ? audio.currentTime : 0,
     listenMs: 0,
     maxProgress: 0,
   };
 }
 function updateListenStatsTick(force) {
-  var youtube = window.MineradioYouTubeV155;
-  var youtubeActive = !!(youtube && youtube.active && youtube.active());
-  var playbackDuration = typeof getPlaybackDurationSeconds === 'function'
-    ? getPlaybackDurationSeconds()
-    : (audio && audio.duration || 0);
-  var playbackPaused = youtubeActive
-    ? !(youtube.isPlaying && youtube.isPlaying())
-    : (!audio || audio.paused);
-  if (!playbackDuration || playbackPaused) return;
+  if (!audio || !audio.duration || audio.paused) return;
   var song = currentCoverSong();
   if (!song) return;
   var key = queueItemKey(song);
   if (!listenSession || listenSession.key !== key) beginListenSession(song, activeRadioContext);
   if (!listenSession) return;
   var now = Date.now();
-  var audioTime = typeof getPlaybackCurrentSeconds === 'function'
-    ? getPlaybackCurrentSeconds()
-    : (audio && isFinite(audio.currentTime) ? audio.currentTime : 0);
+  var audioTime = isFinite(audio.currentTime) ? audio.currentTime : 0;
   var deltaByAudio = Math.max(0, audioTime - (listenSession.lastAudioTime || 0)) * 1000;
   var deltaByWall = Math.max(0, now - (listenSession.lastWallAt || now));
   var delta = deltaByAudio > 0 ? Math.min(deltaByAudio, deltaByWall || deltaByAudio, 4200) : 0;
@@ -16157,17 +16136,14 @@ function updateListenStatsTick(force) {
   if (delta > 0 && delta < 8000) listenSession.listenMs += delta;
   listenSession.lastWallAt = now;
   listenSession.lastAudioTime = audioTime;
-  listenSession.maxProgress = Math.max(listenSession.maxProgress || 0, playbackDuration ? audioTime / playbackDuration : 0);
+  listenSession.maxProgress = Math.max(listenSession.maxProgress || 0, audio.duration ? audioTime / audio.duration : 0);
 }
 function finalizeListenSession(completed) {
   if (!listenSession) return;
   updateListenStatsTick(true);
   var session = listenSession;
   listenSession = null;
-  var playbackDuration = typeof getPlaybackDurationSeconds === 'function'
-    ? getPlaybackDurationSeconds()
-    : (audio && audio.duration || 0);
-  var effective = completed || session.listenMs >= 45000 || session.maxProgress >= 0.5 || (!playbackDuration ? session.listenMs >= 30000 : false);
+  var effective = completed || session.listenMs >= 45000 || session.maxProgress >= 0.5 || (!audio || !audio.duration ? session.listenMs >= 30000 : false);
   if (!effective) return;
   var now = Date.now();
   var snap = session.song || {};
@@ -17434,7 +17410,6 @@ function songDurationLabel(song) {
 }
 function songSourceLabel(song) {
   if (!song) return '未知';
-  if (song.provider === 'youtube' || song.source === 'youtube' || song.type === 'youtube') return 'YouTube';
   if (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq') return 'QQ 音乐';
   if (song.type === 'local') return '本地上传';
   if (song.type === 'podcast' || song.source === 'podcast') return '网易云播客';
@@ -18106,9 +18081,7 @@ function refreshSearchResultActionStates() {
 }
 async function toggleLikeSong(song) {
   if (!isCloudSong(song)) {
-    showToast(songProviderKey(song) === 'youtube'
-      ? 'YouTube 曲目不支持同步网易云红心'
-      : (songProviderKey(song) === 'qq' ? 'QQ 音乐红心同步待登录接口接入' : '本地文件暂不支持红心同步'));
+    showToast(songProviderKey(song) === 'qq' ? 'QQ 音乐红心同步待登录接口接入' : '本地文件暂不支持红心同步');
     return;
   }
   if (!ensureLoggedInForAction()) return;
@@ -18146,9 +18119,7 @@ function toggleLikeDetailSong(song) { toggleLikeSong(song); }
 function openCollectModal(song) {
   if (immersiveMode) setImmersiveMode(false);
   if (!isCloudSong(song)) {
-    showToast(songProviderKey(song) === 'youtube'
-      ? 'YouTube 曲目不能收藏到网易云歌单'
-      : (songProviderKey(song) === 'qq' ? 'QQ 音乐收藏到歌单待登录接口接入' : '本地文件暂不支持收藏到网易云歌单'));
+    showToast(songProviderKey(song) === 'qq' ? 'QQ 音乐收藏到歌单待登录接口接入' : '本地文件暂不支持收藏到网易云歌单');
     return;
   }
   if (!ensureLoggedInForAction()) return;
@@ -18352,7 +18323,7 @@ function rememberSearchQuery(q) {
   writeSearchHistory(items);
 }
 function renderSearchHistory() {
-  if (searchMode !== 'song' && searchMode !== 'netease' && searchMode !== 'youtube') return false;
+  if (searchMode !== 'song') return false;
   var items = readSearchHistory();
   if (!items.length) {
     $results.innerHTML = '';
@@ -18385,7 +18356,6 @@ function runSearchHistory(q) {
 function updateSearchModeTabs() {
   var songBtn = document.getElementById('search-mode-song');
   var neteaseBtn = document.getElementById('search-mode-netease');
-  var youtubeBtn = document.getElementById('search-mode-youtube');
   var qqBtn = document.getElementById('search-mode-qq');
   var podcastBtn = document.getElementById('search-mode-podcast');
   if (songBtn) {
@@ -18396,10 +18366,6 @@ function updateSearchModeTabs() {
     neteaseBtn.classList.toggle('active', searchMode === 'netease');
     neteaseBtn.setAttribute('aria-selected', searchMode === 'netease' ? 'true' : 'false');
   }
-  if (youtubeBtn) {
-    youtubeBtn.classList.toggle('active', searchMode === 'youtube');
-    youtubeBtn.setAttribute('aria-selected', searchMode === 'youtube' ? 'true' : 'false');
-  }
   if (qqBtn) {
     qqBtn.classList.toggle('active', searchMode === 'qq');
     qqBtn.setAttribute('aria-selected', searchMode === 'qq' ? 'true' : 'false');
@@ -18409,23 +18375,15 @@ function updateSearchModeTabs() {
     podcastBtn.setAttribute('aria-selected', searchMode === 'podcast' ? 'true' : 'false');
   }
   if ($input) {
-    var searchModeCopy = {
-      song: { placeholder: '搜索歌曲、歌手...', label: '搜索歌曲或歌手' },
-      netease: { placeholder: '搜索网易云音乐...', label: '搜索网易云音乐' },
-      youtube: { placeholder: '搜索 YouTube Music...', label: '搜索 YouTube Music' },
-      qq: { placeholder: '搜索 QQ 音乐...', label: '搜索 QQ 音乐' },
-      podcast: { placeholder: '搜索播客、电台...', label: '搜索播客或电台' }
-    };
-    var activeSearchCopy = searchModeCopy[searchMode] || searchModeCopy.song;
-    $input.placeholder = activeSearchCopy.placeholder;
-    $input.setAttribute('aria-label', activeSearchCopy.label);
+    $input.placeholder = searchMode === 'podcast'
+      ? '搜索播客、电台...'
+      : (searchMode === 'qq' ? '搜索 QQ 音乐...' : (searchMode === 'netease' ? '搜索网易云音乐...' : '搜索歌曲、歌手...'));
   }
   requestAnimationFrame(updateSearchPillGlassDisplacementMap);
 }
 function setSearchMode(mode) {
-  mode = (mode === 'podcast' || mode === 'netease' || mode === 'youtube' || mode === 'qq') ? mode : 'song';
+  mode = (mode === 'podcast' || mode === 'netease' || mode === 'qq') ? mode : 'song';
   if (searchMode === mode) return;
-  clearTimeout(searchTimer);
   searchMode = mode;
   updateSearchModeTabs();
   clearSearchResults();
@@ -18576,23 +18534,15 @@ $input.addEventListener('input', function(){
   clearTimeout(searchTimer);
   var q = $input.value.trim();
   if (!q) {
-    if (searchMode === 'youtube') clearSearchResults();
     if (searchMode === 'podcast') loadPodcastHot();
     else renderSearchHistory();
-    return;
-  }
-  if (searchMode === 'youtube') {
-    clearSearchResults();
-    $results.innerHTML = '<div class="search-empty">按 Enter 搜索 “' + escHtml(q) + '”</div>';
-    $results.classList.add('show');
     return;
   }
   if (isMusicSearchMode(searchMode)) {
     $results.innerHTML = '<div class="search-empty">正在搜索 “' + escHtml(q) + '”…</div>';
     $results.classList.add('show');
   }
-  var searchDelay = searchMode === 'song' ? 750 : 180;
-  searchTimer = setTimeout(function(){ doSearch(q); }, searchDelay);
+  searchTimer = setTimeout(function(){ doSearch(q); }, 180);
 });
 $input.addEventListener('focus', function(){
   var searchArea = document.getElementById('search-area');
@@ -18646,13 +18596,12 @@ document.addEventListener('click', function(e){
 updateSearchModeTabs();
 
 function songProviderKey(song) {
-  if (song && (song.provider === 'youtube' || song.source === 'youtube' || song.type === 'youtube')) return 'youtube';
   if (song && (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq')) return 'qq';
   return 'netease';
 }
 function songSourceTagHtml(song) {
   var key = songProviderKey(song);
-  var label = key === 'youtube' ? 'YouTube' : (key === 'qq' ? 'QQ音乐' : '网易云');
+  var label = key === 'qq' ? 'QQ' : 'NE';
   return '<span class="tag-source ' + key + '">' + label + '</span>';
 }
 function searchResultMetaText(song) {
@@ -19233,8 +19182,6 @@ function fadeOutAndPauseAudio() {
 }
 
 function applyVolumeToAudio() {
-  var youtube = window.MineradioYouTubeV155;
-  if (youtube && youtube.active && youtube.active()) youtube.setVolume(targetVolume);
   if (audio) {
     audio.muted = false;
     audio.volume = gainNode ? 1 : targetVolume;
@@ -19332,11 +19279,8 @@ function bindVolumeControls() {
 // ============================================================
 //  播放队列
 // ============================================================
-function isExternalOnlyQueueSong(song) {
-  return !!(song && (song.externalOnly === true || song.provider === 'youtube' || song.source === 'youtube' || song.type === 'youtube'));
-}
 function queueItemKey(song) {
-  if (!song || isExternalOnlyQueueSong(song)) return '';
+  if (!song) return '';
   if (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq') return 'qq:' + (song.mid || song.songmid || song.id || (song.name + '|' + song.artist));
   if (song.type === 'podcast' && song.programId) return 'podcast:' + song.programId;
   if (song.localKey) return 'local:' + song.localKey;
@@ -19345,7 +19289,7 @@ function queueItemKey(song) {
 }
 function queueSong(song, opts) {
   opts = opts || {};
-  if (!song || isExternalOnlyQueueSong(song)) return -1;
+  if (!song) return -1;
   var cloned = cloneSong(song);
   var insertAt = playQueue.length;
   if (opts.position === 'next') {
@@ -19426,12 +19370,10 @@ function playSearchResult(i) {
 var firstPlayDone = false;
 
 function playbackProviderLabel(song) {
-  var provider = songProviderKey(song);
-  return provider === 'youtube' ? 'YouTube' : (provider === 'qq' ? 'QQ 音乐' : '网易云');
+  return songProviderKey(song) === 'qq' ? 'QQ 音乐' : '网易云';
 }
 function playbackLoginProvider(song) {
-  var provider = songProviderKey(song);
-  return provider === 'youtube' ? 'youtube' : (provider === 'qq' ? 'qq' : 'netease');
+  return songProviderKey(song) === 'qq' ? 'qq' : 'netease';
 }
 function playbackRestrictionMessage(song, data) {
   data = data || {};
@@ -19724,12 +19666,6 @@ function installQueueAudioEndedHandler(media, token, playbackContext) {
 
 async function playQueueAt(idx, opts) {
   opts = opts || {};
-  if (idx < 0 || idx >= playQueue.length) return;
-  var youtubeAdapter = window.MineradioYouTubeV155;
-  if (youtubeAdapter && youtubeAdapter.isSong && youtubeAdapter.isSong(playQueue[idx])) {
-    return youtubeAdapter.playQueueAt(idx, opts);
-  }
-  if (youtubeAdapter && youtubeAdapter.active && youtubeAdapter.active()) youtubeAdapter.stop();
   var preparedTransition = opts.preparedTransition && typeof opts.preparedTransition === 'object'
     ? opts.preparedTransition
     : null;
@@ -19739,6 +19675,7 @@ async function playQueueAt(idx, opts) {
     preparedTransitionSettled = true;
     setTimeout(function(){ preparedTransition.onCoreSettled(reason || 'settled'); }, 0);
   }
+  if (idx < 0 || idx >= playQueue.length) return;
   if (opts.intentToken != null) {
     if (Number(opts.intentToken) !== playbackIntentSeq) return;
   } else {
@@ -20086,12 +20023,6 @@ async function togglePlay() {
   playToggleBusy = true;
   try {
     forcePlaybackControlsInteractive();
-    var youtube = window.MineradioYouTubeV155;
-    if (youtube && youtube.active && youtube.active()) {
-      if (youtube.isPlaying()) youtube.pause();
-      else youtube.play();
-      return;
-    }
     if ((!audio || !audio.src) && playQueue.length && currentIdx >= 0) {
       await playQueueAt(currentIdx, { manual: true });
       return;
@@ -21083,7 +21014,7 @@ function renderUserPlaylistsList(opts) {
   }
   function playlistCardHtml(pl) {
     var provider = pl.provider === 'qq' ? 'qq' : 'netease';
-    var providerLabel = provider === 'qq' ? 'QQ音乐' : '网易云';
+    var providerLabel = provider === 'qq' ? 'QQ' : 'NE';
     var thumb = pl.cover ? (provider === 'qq' ? pl.cover : (pl.cover + '?param=88y88')) : '';
     var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:44px;height:44px;border-radius:8px;background:rgba(255,255,255,.06);flex-shrink:0"></div>';
     var key = playlistPanelKey(provider, pl.id);
@@ -21339,14 +21270,10 @@ function playbackDurationFromSong(song) {
   return normalizePlaybackDurationSeconds(song.duration || song.durationMs || song.dt || 0);
 }
 function getPlaybackDurationSeconds() {
-  var youtube = window.MineradioYouTubeV155;
-  if (youtube && youtube.active && youtube.active()) return Math.max(0, Number(youtube.duration()) || 0);
   if (audio && isFinite(audio.duration) && audio.duration > 0) return audio.duration;
   return playbackDurationFromSong(currentCoverSong());
 }
 function getPlaybackCurrentSeconds() {
-  var youtube = window.MineradioYouTubeV155;
-  if (youtube && youtube.active && youtube.active()) return Math.max(0, Number(youtube.currentTime()) || 0);
   return audio && isFinite(audio.currentTime) && audio.currentTime > 0 ? audio.currentTime : 0;
 }
 function setProgressVisual(percent) {
@@ -21400,21 +21327,18 @@ function emitProgressDragParticles(x, y) {
 }
 function seekFromProgressPointer(e, emitParticles) {
   var durationSec = getPlaybackDurationSeconds();
-  if (!durationSec) return;
+  if (!audio || !durationSec) return;
   var bar = document.getElementById('progress-bar');
   var rect = bar.getBoundingClientRect();
   var ratio = clampRange((e.clientX - rect.left) / rect.width, 0, 1);
-  var nextTime = ratio * durationSec;
-  var youtube = window.MineradioYouTubeV155;
-  if (youtube && youtube.active && youtube.active()) youtube.seekTo(nextTime);
-  else if (audio) audio.currentTime = nextTime;
+  audio.currentTime = ratio * durationSec;
   setProgressVisual(ratio * 100);
-  if (!(youtube && youtube.active && youtube.active()) && audio) syncBeatMapPlaybackCursor(audio.currentTime);
+  syncBeatMapPlaybackCursor(audio.currentTime);
   if (emitParticles) emitProgressDragParticles(e.clientX, rect.top + rect.height / 2);
 }
 var progressBar = document.getElementById('progress-bar');
 progressBar.addEventListener('pointerdown', function(e){
-  if (!getPlaybackDurationSeconds()) return;
+  if (!audio || !audio.duration) return;
   progressDragState.active = true;
   progressBar.classList.add('is-dragging');
   try { progressBar.setPointerCapture(e.pointerId); } catch (err) {}
@@ -21434,12 +21358,10 @@ progressBar.addEventListener('pointerup', endProgressDrag);
 progressBar.addEventListener('pointercancel', endProgressDrag);
 progressBar.addEventListener('lostpointercapture', function(){ progressDragState.active = false; progressBar.classList.remove('is-dragging'); });
 setInterval(function(){
-  var youtube = window.MineradioYouTubeV155;
-  if (!audio && !(youtube && youtube.active && youtube.active())) { updatePlaybackProgressUi(); return; }
+  if (!audio) { updatePlaybackProgressUi(); return; }
   updateListenStatsTick(false);
   updatePlaybackProgressUi();
-  if (youtube && youtube.active && youtube.active() && typeof syncSystemMediaPosition === 'function') syncSystemMediaPosition(false);
-  if (getPlaybackCurrentSeconds()) updateLyricsHighlight();
+  if (audio.currentTime) updateLyricsHighlight();
 }, 200);
 
 // ============================================================
@@ -24819,18 +24741,10 @@ function onUserBtnClick() {
 }
 function platformMeta(provider) {
   if (provider === 'qq') return { key: 'qq', short: 'QQ', label: 'QQ 音乐', app: 'QQ 音乐 App', dot: 'qq' };
-  if (provider === 'youtube') return { key: 'youtube', short: 'YT', label: 'YouTube Music', app: 'Google', dot: 'youtube' };
   return { key: 'netease', short: 'NE', label: '网易云音乐', app: '网易云音乐 App', dot: 'netease' };
 }
 function platformStatus(provider) {
-  if (provider === 'qq') return qqLoginStatus;
-  if (provider === 'youtube') {
-    var youtube = window.MineradioYouTubeV155;
-    return youtube && typeof youtube.accountStatus === 'function'
-      ? youtube.accountStatus()
-      : { provider: 'youtube', loggedIn: false, nickname: 'YouTube Music', userId: '', avatar: '', vipType: 0 };
-  }
-  return loginStatus;
+  return provider === 'qq' ? qqLoginStatus : loginStatus;
 }
 function providerVipType(provider, status) {
   status = status || platformStatus(provider) || {};
@@ -24867,23 +24781,34 @@ function hasPlatformLogin(provider) {
   return !!(st && st.loggedIn);
 }
 function hasAnyPlatformLogin() {
-  return hasPlatformLogin('netease') || hasPlatformLogin('qq') || hasPlatformLogin('youtube');
+  return hasPlatformLogin('netease') || hasPlatformLogin('qq');
 }
 function firstLoggedProvider() {
   if (hasPlatformLogin(activeAccountProvider)) return activeAccountProvider;
   if (hasPlatformLogin('netease')) return 'netease';
   if (hasPlatformLogin('qq')) return 'qq';
-  if (hasPlatformLogin('youtube')) return 'youtube';
   return 'netease';
 }
 function providerAvatarSrc(provider, status) {
   status = status || platformStatus(provider) || {};
   if (status.avatar) return avatarSrc(status.avatar);
   var meta = platformMeta(provider);
-  var fill = provider === 'qq' ? '#bfd66b' : (provider === 'youtube' ? '#ff6573' : '#d95b67');
-  var bg = provider === 'qq' ? '#11150b' : (provider === 'youtube' ? '#170b0d' : '#180b0f');
+  var fill = provider === 'qq' ? '#bfd66b' : '#d95b67';
+  var bg = provider === 'qq' ? '#11150b' : '#180b0f';
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="' + bg + '"/><circle cx="48" cy="48" r="34" fill="' + fill + '" opacity=".16"/><text x="48" y="56" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="' + fill + '">' + meta.short + '</text></svg>';
   return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+}
+function renderTopAccountPill(provider) {
+  var st = platformStatus(provider);
+  if (!st || !st.loggedIn) return '';
+  var meta = platformMeta(provider);
+  var displayName = (provider === 'qq' && st.preview) ? '待接入' : (st.nickname || meta.label);
+  var vipTag = providerVipBadge(provider, st);
+  return '<span class="top-account-pill">' +
+    '<img src="' + providerAvatarSrc(provider, st) + '" alt="">' +
+    '<span class="top-account-name">' + escHtml(displayName) + '</span>' +
+    vipTag +
+  '</span>';
 }
 async function refreshLoginStatus(force) {
   try {
@@ -24981,13 +24906,20 @@ function startQQLoginStatusAutoRefresh() {
 function renderUserBtn() {
   var btn = document.getElementById('user-btn');
   if (!btn) return;
-  if (hasAnyPlatformLogin()) {
-    if (!hasPlatformLogin(activeAccountProvider)) activeAccountProvider = firstLoggedProvider();
+  btn.classList.remove('multi-account');
+  if (dualAccountMode && hasAnyPlatformLogin()) {
+    activeAccountProvider = firstLoggedProvider();
+    btn.classList.add('logged-in', 'multi-account');
+    btn.classList.remove('logged-out');
+    btn.title = '账号信息 · 双平台登录状态';
+    btn.innerHTML = renderTopAccountPill('netease') + renderTopAccountPill('qq');
+  } else if (hasAnyPlatformLogin()) {
+    activeAccountProvider = firstLoggedProvider();
     var st = platformStatus(activeAccountProvider);
     var meta = platformMeta(activeAccountProvider);
     btn.classList.add('logged-in');
     btn.classList.remove('logged-out');
-    btn.title = (st.nickname || meta.label) + ' · 账号信息';
+    btn.title = dualAccountMode ? '账号信息 · 已启用双平台展示' : ((st.nickname || meta.label) + ' · 账号信息');
     btn.innerHTML = '<img id="user-avatar" src="' + providerAvatarSrc(activeAccountProvider, st) + '">' +
                     '<span>' + escHtml(st.nickname || meta.label) + '</span>' +
                     providerVipBadge(activeAccountProvider, st, 'user-vip-tag');
@@ -25012,9 +24944,7 @@ function closeLoginModal() {
   closeGsapModal(document.getElementById('login-modal'));
 }
 function setLoginProvider(provider, silent) {
-  var nextProvider = provider === 'qq' ? 'qq' : 'netease';
-  if (loginProvider === 'qq' && nextProvider !== 'qq') qqManualCookieOpen = false;
-  loginProvider = nextProvider;
+  loginProvider = provider === 'qq' ? 'qq' : 'netease';
   updateLoginProviderUi();
   if (!silent && document.getElementById('login-modal').classList.contains('show')) refreshQr();
 }
@@ -25031,23 +24961,9 @@ function updateLoginProviderUi() {
   var qqCard = document.getElementById('qq-web-login-card');
   var neteaseBtn = document.getElementById('login-provider-netease');
   var qqBtn = document.getElementById('login-provider-qq');
-  var youtubeBtn = document.getElementById('login-provider-youtube');
-  var youtubePanel = document.getElementById('youtube-main-login-panel');
   var canOpenNeteaseWeb = !!(window.desktopWindow && typeof window.desktopWindow.openNeteaseMusicLogin === 'function');
-  if (!isQQ) qqManualCookieOpen = false;
-  if (neteaseBtn) {
-    neteaseBtn.classList.toggle('active', !isQQ);
-    neteaseBtn.setAttribute('aria-selected', !isQQ ? 'true' : 'false');
-  }
-  if (qqBtn) {
-    qqBtn.classList.toggle('active', isQQ);
-    qqBtn.setAttribute('aria-selected', isQQ ? 'true' : 'false');
-  }
-  if (youtubeBtn) {
-    youtubeBtn.classList.remove('active');
-    youtubeBtn.setAttribute('aria-selected', 'false');
-  }
-  if (youtubePanel) youtubePanel.hidden = true;
+  if (neteaseBtn) neteaseBtn.classList.toggle('active', loginProvider === 'netease');
+  if (qqBtn) qqBtn.classList.toggle('active', isQQ);
   if (title) title.textContent = '扫码登录' + meta.label;
   if (desc) desc.innerHTML = isQQ
     ? '打开 <b>QQ 音乐官方网页登录窗口</b> 扫码，成功后会自动同步账号会话。'
@@ -25055,20 +24971,13 @@ function updateLoginProviderUi() {
       ? '打开 <b>网易云音乐官方网页登录窗口</b> 扫码，避开接口二维码风控；成功后会自动同步账号会话。'
       : '使用 <b>网易云音乐 App</b> 扫码，可同步歌单、红心与播客。');
   if (shell) {
-    shell.hidden = false;
     shell.classList.toggle('web-login-preview', isQQ || canOpenNeteaseWeb);
     shell.classList.toggle('qq-preview', isQQ);
     shell.classList.toggle('netease-preview', !isQQ && canOpenNeteaseWeb);
   }
-  if (st) st.hidden = false;
-  if (qqPanel) {
-    var showQQPanel = isQQ && qqManualCookieOpen;
-    qqPanel.classList.toggle('show', showQQPanel);
-    qqPanel.hidden = !showQQPanel;
-  }
+  if (qqPanel) qqPanel.classList.toggle('show', isQQ && qqManualCookieOpen);
   if (qqCookieToggle) {
     qqCookieToggle.classList.toggle('show', isQQ);
-    qqCookieToggle.hidden = !isQQ;
     qqCookieToggle.textContent = qqManualCookieOpen ? '收起导入' : '手动导入';
   }
   if (qqCard) {
@@ -25087,7 +24996,6 @@ function updateLoginProviderUi() {
       : (canOpenNeteaseWeb ? '点击“网页登录”打开网易云官方窗口' : '正在生成二维码…');
   }
   if (refreshBtn) {
-    refreshBtn.hidden = false;
     refreshBtn.disabled = isQQ ? !!qqWebLoginBusy : !!neteaseWebLoginBusy;
     refreshBtn.textContent = isQQ ? (qqWebLoginBusy ? '等待扫码…' : '扫码登录') : (canOpenNeteaseWeb ? (neteaseWebLoginBusy ? '等待扫码…' : '网页登录') : '刷新二维码');
     refreshBtn.onclick = isQQ ? openQQWebLogin : (canOpenNeteaseWeb ? openNeteaseWebLogin : refreshQr);
@@ -25299,7 +25207,7 @@ async function checkQr() {
   } catch (e) { console.warn(e); }
 }
 function updateUserModalUi() {
-  if (!hasPlatformLogin(activeAccountProvider)) activeAccountProvider = firstLoggedProvider();
+  activeAccountProvider = firstLoggedProvider();
   var st = platformStatus(activeAccountProvider);
   var meta = platformMeta(activeAccountProvider);
   var chip = document.getElementById('account-provider-chip');
@@ -25328,18 +25236,16 @@ function updateUserModalUi() {
       vipEl.style.color = hasProviderVip('qq', st) ? 'rgba(0,245,212,0.82)' : 'rgba(0,245,212,0.58)';
     }
   }
-  ['netease','qq'].forEach(function(key){
+  ['netease','qq','both'].forEach(function(key){
     var btn = document.getElementById('user-provider-' + key);
-    if (btn) {
-      var active = activeAccountProvider === key;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-selected', active ? 'true' : 'false');
-    }
+    if (btn) btn.classList.toggle('active', key === 'both' ? dualAccountMode : (!dualAccountMode && activeAccountProvider === key));
   });
   if (addNetease) addNetease.style.display = hasPlatformLogin('netease') ? 'none' : '';
   if (addQQ) addQQ.textContent = hasPlatformLogin('qq') ? '查看 QQ 音乐' : '补登 QQ 音乐';
   if (logoutBtn) logoutBtn.textContent = activeAccountProvider === 'qq' ? '退出 QQ 音乐' : '退出网易云';
-  if (hint) hint.textContent = '当前显示' + meta.label + '账号信息。';
+  if (hint) hint.textContent = dualAccountMode
+    ? '右上角已切换为双平台并排展示。'
+    : '可切换右上角展示的平台；“我两个都要”会并排放两个登录状态。';
 }
 function showUserModal() {
   if (!hasAnyPlatformLogin()) return showLoginModal();
@@ -25354,8 +25260,30 @@ function setActiveAccountProvider(provider) {
     return;
   }
   activeAccountProvider = provider;
+  dualAccountMode = false;
   renderUserBtn();
   updateUserModalUi();
+}
+function enableDualAccountView() {
+  if (!hasPlatformLogin('netease') && !hasPlatformLogin('qq')) {
+    openProviderLogin('netease');
+    return;
+  }
+  if (!hasPlatformLogin('netease')) {
+    openProviderLogin('netease');
+    return;
+  }
+  if (!hasPlatformLogin('qq')) {
+    openProviderLogin('qq');
+    return;
+  }
+  dualAccountMode = true;
+  renderUserBtn();
+  updateUserModalUi();
+  showToast('已启用双平台账号展示');
+}
+function requestDualLoginMode() {
+  enableDualAccountView();
 }
 function openProviderLogin(provider) {
   provider = provider === 'qq' ? 'qq' : 'netease';
@@ -25374,6 +25302,7 @@ async function logoutActiveAccount() {
     qqLoginStatus = { provider: 'qq', loggedIn: false, preview: false, nickname: 'QQ 音乐', userId: '', avatar: '', vipType: 0 };
     qqPlaylists = [];
     userPlaylists = userPlaylists.filter(function(pl){ return pl.provider !== 'qq'; });
+    dualAccountMode = false;
     activeAccountProvider = firstLoggedProvider();
     renderUserBtn();
     if (hasAnyPlatformLogin()) updateUserModalUi();
@@ -25392,6 +25321,7 @@ async function doLogout() {
   } catch (e) {}
   loginStatus = { loggedIn: false };
   resetNeteaseHomeState();
+  if (!hasPlatformLogin('netease') || !hasPlatformLogin('qq')) dualAccountMode = false;
   activeAccountProvider = firstLoggedProvider();
   userPlaylists = qqPlaylists.slice();
   myPodcastCollections = [];
@@ -25515,16 +25445,13 @@ function maybeRunStartupLoginGuide(source) {
   if (visualGuideActive) return;
   if (document.body.classList.contains('splash-active')) return;
   if (immersiveMode) return;
-  if (!loginStatusChecked || loginStatusCheckFailed || loginStatus.loggedIn ||
-      (window.MineradioYouTubeV155 && window.MineradioYouTubeV155.connected()) || playing) return;
+  if (!loginStatusChecked || loginStatusCheckFailed || loginStatus.loggedIn || playing) return;
   var loginModal = document.getElementById('login-modal');
   var userModal = document.getElementById('user-modal');
   if ((loginModal && loginModal.classList.contains('show')) || (userModal && userModal.classList.contains('show'))) return;
   startupLoginGuideShown = true;
   setTimeout(function(){
-    if (loginStatus.loggedIn ||
-        (window.MineradioYouTubeV155 && window.MineradioYouTubeV155.connected()) ||
-        playing || immersiveMode || document.body.classList.contains('splash-active')) return;
+    if (loginStatus.loggedIn || playing || immersiveMode || document.body.classList.contains('splash-active')) return;
     runLoginGuideParticles(function(){ showLoginModal({ guided: true, source: source || 'startup' }); });
   }, source === 'splash' ? 6200 : 2600);
 }
@@ -27827,8 +27754,6 @@ function systemMediaArtworkType(src) {
 }
 function runSystemMediaAction(action, details) {
   details = details || {};
-  var youtube = window.MineradioYouTubeV155;
-  if (youtube && youtube.active && youtube.active()) return youtube.handleMediaAction(action, details);
   var recoveryAudible = hasAudibleTransitionRecovery();
   if (action === 'play') {
     if (recoveryAudible) return;
@@ -27882,10 +27807,7 @@ function syncSystemMediaPosition(force) {
     return;
   }
   var position = clampRange(getPlaybackCurrentSeconds(), 0, Math.max(0, duration - 0.001));
-  var youtube = window.MineradioYouTubeV155;
-  var playbackRate = youtube && youtube.active && youtube.active()
-    ? 1
-    : (audio && isFinite(audio.playbackRate) && audio.playbackRate > 0 ? audio.playbackRate : 1);
+  var playbackRate = audio && isFinite(audio.playbackRate) && audio.playbackRate > 0 ? audio.playbackRate : 1;
   try {
     navigator.mediaSession.setPositionState({ duration: duration, position: position, playbackRate: playbackRate });
   } catch (e) {}
@@ -27894,12 +27816,8 @@ function syncSystemMediaIntegration(force) {
   setupSystemMediaSession();
   var song = typeof currentCoverSong === 'function' ? currentCoverSong() : null;
   var meta = currentDesktopSongMeta();
-  var youtube = window.MineradioYouTubeV155;
-  var youtubeActive = !!(youtube && youtube.active && youtube.active());
-  var hasTrack = !!(song || audio && audio.src || youtubeActive);
-  var isPlaying = youtubeActive
-    ? !!(youtube.isPlaying && youtube.isPlaying())
-    : (hasAudibleTransitionRecovery() || !!(audio && audio.src && !audio.paused && !audio.ended));
+  var hasTrack = !!(song || audio && audio.src);
+  var isPlaying = hasAudibleTransitionRecovery() || !!(audio && audio.src && !audio.paused && !audio.ended);
   var artwork = systemMediaArtworkUrl(meta.cover);
   var metadataKey = [hasTrack, meta.title, meta.artist, meta.album, artwork].join('|');
   if ((force || metadataKey !== systemMediaSyncState.metadataKey) && navigator.mediaSession) {
@@ -27939,16 +27857,9 @@ function normalizeDesktopLyricText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 function currentDesktopLyricSnapshot() {
-  var t = typeof getPlaybackCurrentSeconds === 'function'
-    ? getPlaybackCurrentSeconds()
-    : (audio && isFinite(audio.currentTime) ? Number(audio.currentTime) : 0);
-  var duration = typeof getPlaybackDurationSeconds === 'function'
-    ? getPlaybackDurationSeconds()
-    : (audio && isFinite(audio.duration) ? Number(audio.duration) : 0);
-  var youtube = window.MineradioYouTubeV155;
-  var hasPlayback = !!(audio && audio.src) || !!(youtube && youtube.active && youtube.active());
+  var t = audio && isFinite(audio.currentTime) ? Number(audio.currentTime) : 0;
   var lines = Array.isArray(lyricsLines) ? lyricsLines : [];
-  if (hasPlayback && lines.length) {
+  if (audio && audio.src && lines.length) {
     var idx = -1;
     for (var i = 0; i < lines.length; i++) {
       if (lines[i].t <= t + 0.05) idx = i;
@@ -27957,7 +27868,7 @@ function currentDesktopLyricSnapshot() {
     if (idx >= 0) {
       var curLine = lines[idx] || { t:t, text:'' };
       var nextLine = lines[idx + 1];
-      var nextT = nextLine && nextLine.t > curLine.t ? nextLine.t : Math.min(duration || t + 4, curLine.t + (curLine.duration || 4.8));
+      var nextT = nextLine && nextLine.t > curLine.t ? nextLine.t : Math.min((audio && audio.duration) || t + 4, curLine.t + (curLine.duration || 4.8));
       var span = Math.max(0.75, nextT - curLine.t);
       var displayParts = typeof getLyricDisplayParts === 'function'
         ? getLyricDisplayParts(curLine)
@@ -27972,7 +27883,7 @@ function currentDesktopLyricSnapshot() {
     var introText = normalizeDesktopLyricText(currentLyricFallbackText());
     if (introText) {
       var firstLine = lines[0];
-      var introEnd = firstLine && firstLine.t > 0 ? firstLine.t : Math.min(duration || 4.8, 4.8);
+      var introEnd = firstLine && firstLine.t > 0 ? firstLine.t : Math.min((audio && audio.duration) || 4.8, 4.8);
       return {
         text: introText,
         secondaryText: '',
@@ -28020,16 +27931,9 @@ function desktopLyricsMotionPayload() {
   };
 }
 function desktopLyricsPlaybackPayload() {
-  var time = typeof getPlaybackCurrentSeconds === 'function'
-    ? getPlaybackCurrentSeconds()
-    : (audio && isFinite(audio.currentTime) ? Number(audio.currentTime) : 0);
-  var duration = typeof getPlaybackDurationSeconds === 'function'
-    ? getPlaybackDurationSeconds()
-    : (audio && isFinite(audio.duration) ? Number(audio.duration) : 0);
-  var youtube = window.MineradioYouTubeV155;
-  var rate = youtube && youtube.active && youtube.active()
-    ? 1
-    : (audio && isFinite(audio.playbackRate) && audio.playbackRate > 0 ? Number(audio.playbackRate) : 1);
+  var time = audio && isFinite(audio.currentTime) ? Number(audio.currentTime) : 0;
+  var duration = audio && isFinite(audio.duration) ? Number(audio.duration) : 0;
+  var rate = audio && isFinite(audio.playbackRate) && audio.playbackRate > 0 ? Number(audio.playbackRate) : 1;
   return {
     time: Math.max(0, time),
     duration: Math.max(0, duration),
@@ -28811,7 +28715,6 @@ animate();
 <script src="js/v150.js"></script>
 <script src="js/v150-audio.js"></script>
 <script src="js/v153-transition.js"></script>
-<script src="js/v155-youtube.js"></script>
 <script src="js/v150-accessibility.js"></script>
 </body>
 </html>
