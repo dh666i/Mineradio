@@ -209,6 +209,11 @@
     });
     return result;
   }
+  function mergeCombinedSearchPage(neteaseSongs, qqSongs, limit, q) {
+    return typeof mergeSongSearchResults === 'function'
+      ? mergeSongSearchResults(neteaseSongs || [], qqSongs || [], limit, q)
+      : mergeSearchPage(neteaseSongs || [], qqSongs || []).slice(0, limit);
+  }
   async function fetchSearchPage(q, mode, state) {
     state = state || v140Search;
     if (mode === 'netease') {
@@ -235,10 +240,10 @@
         total: finite(qq.total, qqOffset)
       };
     }
-    var neCombinedLimit = 18;
-    var qqCombinedLimit = 12;
     var requestNetease = state.neteaseHasMore !== false;
     var requestQQ = state.qqHasMore !== false;
+    var neCombinedLimit = 18;
+    var qqCombinedLimit = 12;
     var settled = await Promise.allSettled([
       requestNetease
         ? apiJsonV140('/api/search?keywords=' + encodeURIComponent(q) + '&limit=' + neCombinedLimit + '&offset=' + state.neteaseOffset)
@@ -253,7 +258,8 @@
     if (requestNetease && settled[0].status === 'rejected') failures.push('网易云');
     if (requestQQ && settled[1].status === 'rejected') failures.push('QQ 音乐');
     if (!neData && !qqData && failures.length) {
-      throw settled[0].status === 'rejected' ? settled[0].reason : settled[1].reason;
+      var firstFailure = settled.filter(function (result) { return result.status === 'rejected'; })[0];
+      throw firstFailure.reason;
     }
     var nextNeteaseOffset = neData ? state.neteaseOffset + finite(neData.limit, neCombinedLimit) : state.neteaseOffset;
     var nextQQOffset = qqData ? state.qqOffset + finite(qqData.limit, qqCombinedLimit) : state.qqOffset;
@@ -261,9 +267,12 @@
     var nextQQHasMore = qqData ? !!qqData.hasMore : state.qqHasMore;
     var nextNeteaseTotal = neData ? finite(neData.total, nextNeteaseOffset) : state.neteaseTotal;
     var nextQQTotal = qqData ? finite(qqData.total, nextQQOffset) : state.qqTotal;
-    var merged = typeof mergeSongSearchResults === 'function'
-      ? mergeSongSearchResults(neData && neData.songs || [], qqData && qqData.songs || [], 30, q)
-      : (neData && neData.songs || []).concat(qqData && qqData.songs || []);
+    var merged = mergeCombinedSearchPage(
+      neData && neData.songs || [],
+      qqData && qqData.songs || [],
+      30,
+      q
+    );
     return {
       songs: merged,
       hasMore: !!(nextNeteaseHasMore || nextQQHasMore),
@@ -377,7 +386,9 @@
       playlist = mergeSearchPage(append ? playlist : [], page.songs || []);
       searchLastResultQuery = playlist.length ? searchResultKey(q, mode) : '';
       if (!playlist.length) {
-        $results.innerHTML = searchStateMarkup('没有找到相关歌曲', '换一个歌名或歌手试试', false);
+        $results.innerHTML = v140Search.partialFailures.length
+          ? searchStateMarkup(v140Search.partialFailures.join('、') + '暂时不可用', '当前没有其他结果，点击重试', true)
+          : searchStateMarkup('没有找到相关歌曲', '换一个歌名或歌手试试', false);
         $results.classList.add('show');
       } else {
         rememberSearchQuery(q);
@@ -530,7 +541,7 @@
     return (error && error.message) || fallback || '操作失败';
   }
 
-  var pendingResume = { key: '', seconds: 0 };
+  var pendingResume = { key: '', seconds: 0, applied: false };
   var sessionSaveTimer = null;
   var queueSelectionMode = false;
   var queueSelection = new Set();
@@ -542,6 +553,8 @@
   var queueRenderQueueRef = playQueue;
 
   function playbackWasActive() {
+    var youtube = window.MineradioYouTubeV155;
+    if (youtube && youtube.active && youtube.active()) return !!(youtube.isPlaying && youtube.isPlaying());
     return !!(audio && audio.src && !audio.paused && !audio.ended)
       || (typeof window.hasAudibleTransitionRecovery === 'function' && window.hasAudibleTransitionRecovery());
   }
@@ -577,6 +590,8 @@
     if (typeof syncSystemMediaIntegration === 'function') syncSystemMediaIntegration(true);
   }
   function stopAudioForQueueChange(nextSong) {
+    var youtube = window.MineradioYouTubeV155;
+    if (youtube && youtube.active && youtube.active()) youtube.stop();
     if (window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
       window.MineradioTransitionV153.cancel('queue-stop');
     }
@@ -604,8 +619,8 @@
         queue: playQueue,
         currentIndex: currentIdx,
         activePlaybackSong: activePlaybackSong,
-        positionSeconds: audio && isFinite(audio.currentTime) ? audio.currentTime : pendingResume.seconds,
-        durationSeconds: audio && isFinite(audio.duration) ? audio.duration : 0,
+        positionSeconds: queueSessionPositionSeconds(),
+        durationSeconds: typeof getPlaybackDurationSeconds === 'function' ? getPlaybackDurationSeconds() : (audio && isFinite(audio.duration) ? audio.duration : 0),
         playMode: playMode,
         wasPlaying: playbackWasActive(),
         context: activeRadioContext || null
@@ -613,6 +628,16 @@
     } catch (error) {
       console.warn('[QueueSessionSave]', error);
     }
+  }
+  function queueSessionPositionSeconds() {
+    var current = typeof getPlaybackCurrentSeconds === 'function'
+      ? Math.max(0, finite(getPlaybackCurrentSeconds(), 0))
+      : (audio && isFinite(audio.currentTime) ? Math.max(0, audio.currentTime) : 0);
+    var song = selectedSong() || activePlaybackSong;
+    if (pendingResume.key && song && keyFor(song) === pendingResume.key && current < .35) {
+      return Math.max(current, pendingResume.seconds);
+    }
+    return current;
   }
   function scheduleQueueSessionSave() {
     if (sessionSaveTimer) clearTimeout(sessionSaveTimer);
@@ -637,7 +662,8 @@
     activeRadioContext = restored.state.context || null;
     pendingResume = {
       key: keyFor(playQueue[currentIdx]),
-      seconds: Math.max(0, finite(restored.state.positionSeconds, 0))
+      seconds: Math.max(0, finite(restored.state.positionSeconds, 0)),
+      applied: false
     };
     renderSelectedSongPaused(playQueue[currentIdx]);
     if (typeof revealRestoredPlaybackVisual === 'function') revealRestoredPlaybackVisual();
@@ -717,6 +743,7 @@
       '<button type="button" onclick="event.stopPropagation();removeFromQueue(' + index + ')" title="移除">×</button>' +
     '</div>';
   }
+
   function renderQueueSelectionTools() {
     var pane = byId('queue-pane');
     if (!pane) return;
@@ -911,7 +938,7 @@
         queue: playQueue,
         currentIndex: currentIdx,
         currentKey: keyFor(selectedSong()),
-        positionSeconds: audio && audio.currentTime || 0,
+        positionSeconds: typeof getPlaybackCurrentSeconds === 'function' ? getPlaybackCurrentSeconds() : (audio && audio.currentTime || 0),
         wasPlaying: wasPlaying
       }, selectedIndices, { onRemoveCurrent: 'advance' });
       if (!removal.changed) return;
@@ -1011,7 +1038,7 @@
         queue: playQueue,
         currentIndex: currentIdx,
         currentKey: keyFor(selectedSong()),
-        positionSeconds: audio && audio.currentTime || 0,
+        positionSeconds: typeof getPlaybackCurrentSeconds === 'function' ? getPlaybackCurrentSeconds() : (audio && audio.currentTime || 0),
         wasPlaying: wasPlaying
       }, index, { onRemoveCurrent: 'advance' });
       if (!result.changed) return;
@@ -1143,28 +1170,42 @@
     if (!audio || audio.__v140EndedGuard === audio.onended) return;
     var originalEnded = audio.onended;
     var guarded = function (event) {
-      if (sleepState.mode === 'track') {
-        clearSleepTimer(true);
-        playing = false;
-        setPlayIcon(false);
-        showToast('本首播放完毕，睡眠定时已停止播放');
-        saveQueueSessionNow();
-        return;
-      }
+      if (finishSleepAfterCurrent()) return;
       if (typeof originalEnded === 'function') return originalEnded.call(audio, event);
     };
     audio.onended = guarded;
     audio.__v140EndedGuard = guarded;
   }
+  function finishSleepAfterCurrent() {
+    if (sleepState.mode !== 'track') return false;
+    clearSleepTimer(true);
+    playing = false;
+    setPlayIcon(false);
+    showToast('本首播放完毕，睡眠定时已停止播放');
+    saveQueueSessionNow();
+    return true;
+  }
+  window.handleSleepTrackEnded = finishSleepAfterCurrent;
   window.playQueueAt = async function (index, opts) {
     opts = Object.assign({}, opts || {});
     var target = playQueue[index];
-    if (pendingResume.key && target && keyFor(target) === pendingResume.key && opts.resumeAt == null) {
+    var targetKey = target && keyFor(target);
+    var applyingResume = false;
+    if (pendingResume.key && targetKey !== pendingResume.key) {
+      pendingResume = { key: '', seconds: 0, applied: false };
+    } else if (pendingResume.key && targetKey === pendingResume.key && !pendingResume.applied && opts.resumeAt == null) {
       opts.resumeAt = pendingResume.seconds;
-      pendingResume = { key: '', seconds: 0 };
+      applyingResume = true;
     }
     document.body.classList.toggle('podcast-playing', isPodcast(target));
-    var result = await legacyPlayQueueAt(index, opts);
+    var result;
+    try {
+      result = await legacyPlayQueueAt(index, opts);
+      if (applyingResume && result !== false) pendingResume.applied = true;
+    } catch (error) {
+      if (applyingResume) pendingResume.applied = false;
+      throw error;
+    }
     syncPodcastControls();
     installSleepEndedGuard();
     updatePlaybackPresence();
@@ -1172,6 +1213,12 @@
     return result;
   };
   window.seekPlaybackBy = function (seconds) {
+    var youtube = window.MineradioYouTubeV155;
+    if (youtube && youtube.active && youtube.active()) {
+      youtube.seekTo(clamp(youtube.currentTime() + finite(seconds, 0), 0, youtube.duration() || Infinity));
+      updatePlaybackProgressUi();
+      return;
+    }
     if (!audio || !isFinite(audio.duration)) return;
     audio.currentTime = clamp((audio.currentTime || 0) + finite(seconds, 0), 0, audio.duration);
     updatePlaybackProgressUi();
@@ -1211,7 +1258,12 @@
         if (window.MineradioTransitionV153 && typeof window.MineradioTransitionV153.cancel === 'function') {
           window.MineradioTransitionV153.cancel('pause-intent');
         }
-        if (audio && !audio.paused) audio.pause();
+        var youtube = window.MineradioYouTubeV155;
+        if (youtube && youtube.active && youtube.active()) {
+          if (!youtube.pause()) youtube.stop();
+        } else if (audio && !audio.paused) {
+          audio.pause();
+        }
         playing = false;
         setPlayIcon(false);
         clearSleepTimer(true);
@@ -1279,8 +1331,10 @@
     bar.__v140KeyBound = true;
     bar.addEventListener('keydown', function (event) {
       var duration = getPlaybackDurationSeconds();
-      if (!audio || !duration) return;
-      var target = audio.currentTime || 0;
+      if (!duration) return;
+      var target = typeof getPlaybackCurrentSeconds === 'function'
+        ? getPlaybackCurrentSeconds()
+        : (audio && audio.currentTime || 0);
       if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') target -= event.shiftKey ? 15 : 5;
       else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') target += event.shiftKey ? 15 : 5;
       else if (event.key === 'PageDown') target -= duration * .1;
@@ -1290,7 +1344,10 @@
       else return;
       event.preventDefault();
       event.stopPropagation();
-      audio.currentTime = clamp(target, 0, duration);
+      target = clamp(target, 0, duration);
+      var youtube = window.MineradioYouTubeV155;
+      if (youtube && youtube.active && youtube.active()) youtube.seekTo(target);
+      else if (audio) audio.currentTime = target;
       updatePlaybackProgressUi();
     }, true);
   }
@@ -1373,7 +1430,7 @@
   function updateSettingsVersion() {
     var node = byId('settings-version');
     if (!node) return;
-    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.4';
+    var current = updatePreviewState && updatePreviewState.currentVersion || '1.5.5';
     node.textContent = 'Mineradio v' + current + (updatePreviewState && updatePreviewState.checkStatus === 'available' ? (' · 可更新至 v' + updatePreviewState.version) : '');
   }
   function activateSettingsTab(name, focus) {
@@ -1521,7 +1578,9 @@
         else if (typeof closeLocalBeatModal === 'function') closeLocalBeatModal();
       },
       'custom-lyric-modal': window.closeCustomLyricModal,
-      'daily-recommend-modal': window.closeDailyRecommendDetail
+      'daily-recommend-modal': window.closeDailyRecommendDetail,
+      'v155-youtube-detail': window.closeYouTubeDetailModal,
+      'v155-youtube-account-view': window.closeYouTubeAccountViewModal
     };
     var close = closers[mask.id];
     if (typeof close === 'function') close(); else closeGsapModal(mask);

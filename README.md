@@ -1,4 +1,4 @@
-# Mineradio 1.5.4
+# Mineradio 1.5.5
 
 ![Mineradio 暗场启动页](./docs/assets/readme/cinema-beat-smoke.png)
 
@@ -10,11 +10,11 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、�
 
 ## 当前状态
 
-当前源码版本：`1.5.4`
+当前源码版本：`1.5.5`
 
-当前稳定安装版为 `v1.5.4`。Windows 安装包仅通过本仓库 Releases 发布。
+当前稳定安装版为 `v1.5.5`。Windows 安装包仅通过本仓库 Releases 发布。
 
-`v1.5.4` 新增默认无缝衔接与可选 3 / 5 / 8 秒交叉淡化，并继续完善搜索、歌单、启动视觉和设置界面。完整变更见 [CHANGELOG.md](./CHANGELOG.md)。
+`v1.5.5` 新增 YouTube Music 独立来源搜索、Google 官方 OAuth 登录、个人内容与系统浏览器打开，并整理搜索和三平台账号界面。完整变更见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 下载或安装被拦截怎么办
 
@@ -38,6 +38,8 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、�
 - 自定义专辑封面上传与裁剪
 - 右键唤起 3D 歌单架，支持歌单队列浏览
 - 网易云音乐账号、搜索、歌单、播客、每日推荐和私人 FM 接入
+- YouTube Music 提供独立来源的歌曲、歌单与频道搜索；仅在用户明确选择该来源后请求，点击视频会在系统浏览器打开 YouTube Music
+- Google 官方 OAuth 登录，支持 YouTube 个人歌单、喜欢的视频和订阅频道
 - 网易云发现页支持热门歌单、新碟、新歌、分类浏览，以及歌曲、歌手、专辑和歌单类型搜索
 - 网易云与 QQ 音乐搜索支持分页、加载更多、单来源失败重试、播放全部、批量入队和歌曲快捷操作
 - 支持专辑详情、歌手专辑、歌单收藏，以及本人普通网易云歌单的元数据编辑、删除、移除歌曲和曲序同步
@@ -55,7 +57,7 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、�
 
 ## 使用说明
 
-Windows 用户可从 [GitHub Releases](https://github.com/dh666i/Mineradio/releases/tag/v1.5.4) 下载带 `1.5.4` 版本号的安装包，并使用同一 Release 中的 SHA256 文件核对摘要。
+Windows 用户可从 [GitHub Releases](https://github.com/dh666i/Mineradio/releases/tag/v1.5.5) 下载带 `1.5.5` 版本号的安装包，并使用同一 Release 中的 SHA256 文件核对摘要。
 
 ## 开发运行
 
@@ -67,6 +69,22 @@ npm run build:win
 ```
 
 桌面版入口由 Electron 主进程加载本地服务。`npm run build:win` 会生成 Windows NSIS 安装包，产物位于 `dist/`。
+
+## YouTube Music 配置
+
+正式版本中，用户从账号页点击 YouTube 后会直接在系统浏览器打开 Google 官方登录，不需要填写 API Key 或导入 OAuth JSON。YouTube 搜索、歌单、频道和个人内容统一使用登录后的只读 OAuth 授权。
+
+维护者构建官方版本前需要：
+
+1. 在 Google Cloud 项目中启用 `YouTube Data API v3`。
+2. 在 Google Auth Platform 的“数据访问”中添加 `https://www.googleapis.com/auth/youtube.readonly`。
+3. 配置 OAuth 同意屏幕，创建“桌面应用”类型的 OAuth 客户端并下载 JSON。
+4. 将文件保存为 `.cert/google-oauth-desktop.json`，或通过 `MINERADIO_GOOGLE_OAUTH_CLIENT_FILE` 指定仓库外路径。
+5. 测试构建使用 `npm run build:win:dir`；正式安装包构建会在缺少 OAuth 客户端时直接终止，避免发布无法登录的版本。
+
+`.cert/` 已被 Git 忽略。桌面 OAuth 客户端属于公开客户端，随安装包提供后可以被提取；真正需要保护的用户 Access Token 和 Refresh Token 仍通过 Windows DPAPI 加密保存在各自电脑。面向公众发布前，应把 OAuth 应用切换到 Production，并按 Google 要求完成品牌和敏感权限验证。YouTube Data API 使用项目共享的每日配额，配额耗尽后需等待恢复或申请调整。
+
+YouTube Data API 请求仅在用户明确选择 YouTube Music 搜索或个人内容时发起；视频结果通过系统浏览器在 YouTube Music 官方页面打开，不进入 Mineradio 播放队列，也不使用隐藏 IFrame 播放。
 
 ## 更新机制
 

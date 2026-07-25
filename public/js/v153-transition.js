@@ -37,6 +37,7 @@
 
   function providerKey(song) {
     if (typeof window.songProviderKey === 'function') return window.songProviderKey(song);
+    if (song && (song.provider === 'youtube' || song.source === 'youtube' || song.type === 'youtube')) return 'youtube';
     if (song && (song.provider === 'qq' || song.source === 'qq' || song.type === 'qq')) return 'qq';
     return 'netease';
   }

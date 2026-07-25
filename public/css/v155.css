@@ -1,0 +1,687 @@
+:root {
+  --source-youtube: #ff4e5e;
+}
+
+.tag-source.youtube {
+  color: #ffd9dd;
+  border-color: rgba(255, 78, 94, .34);
+  background: rgba(255, 78, 94, .09);
+}
+
+.v155-youtube-source-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 78, 94, .34);
+  border-radius: 5px;
+  background: rgba(255, 78, 94, .11);
+  color: #ffd9dd;
+  font: 750 9px/1 var(--font-mono);
+  white-space: nowrap;
+}
+
+.search-result.youtube-source {
+  border-color: rgba(255, 78, 94, .1);
+}
+
+#v155-youtube-types {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 7px;
+  background: rgba(8, 11, 14, .42);
+}
+
+#v155-youtube-types.show {
+  display: flex;
+}
+
+#v155-youtube-types button {
+  height: 25px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, .43);
+  font: 650 10.5px/1 inherit;
+  cursor: pointer;
+}
+
+#v155-youtube-types button:hover,
+#v155-youtube-types button:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, .06);
+}
+
+#v155-youtube-types button.active {
+  color: #fff;
+  background: rgba(255, 78, 94, .12);
+  box-shadow: inset 0 0 0 1px rgba(255, 78, 94, .27);
+}
+
+body.empty-home-active.diy-mode #v155-youtube-types {
+  display: none;
+}
+
+.v155-search-state {
+  min-height: 190px;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  text-align: center;
+}
+
+.v155-search-state strong,
+.v155-search-state span {
+  display: block;
+}
+
+.v155-search-state strong {
+  color: rgba(255, 255, 255, .82);
+  font-size: 13px;
+}
+
+.v155-search-state span {
+  max-width: 430px;
+  margin-top: 7px;
+  color: rgba(255, 255, 255, .4);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.v155-search-state button {
+  margin-top: 14px;
+}
+
+.v155-search-sections {
+  display: grid;
+  gap: 2px;
+  padding: 3px 0 10px;
+}
+
+.v155-search-section {
+  min-width: 0;
+  padding: 5px 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, .055);
+}
+
+.v155-search-section:last-child {
+  border-bottom: 0;
+}
+
+.v155-search-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 6px;
+}
+
+.v155-search-head strong {
+  color: rgba(255, 255, 255, .86);
+  font-size: 11px;
+}
+
+.v155-search-head span {
+  color: rgba(255, 255, 255, .34);
+  font-size: 9.5px;
+}
+
+.v155-search-head button {
+  height: 25px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 111, 124, .9);
+  font: 650 9.5px/1 inherit;
+  cursor: pointer;
+}
+
+.v155-search-head button + button {
+  margin-left: 0;
+}
+
+.v155-search-head button:hover,
+.v155-search-head button:focus-visible {
+  color: #fff;
+  background: rgba(255, 78, 94, .1);
+}
+
+.v155-song-grid,
+.v155-entity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+}
+
+.v155-song-row,
+.v155-entity-card {
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.v155-song-row:hover,
+.v155-song-row:focus-visible,
+.v155-entity-card:hover,
+.v155-entity-card:focus-visible {
+  background: rgba(255, 255, 255, .055);
+  outline: none;
+}
+
+.v155-song-cover,
+.v155-entity-cover {
+  width: 46px;
+  height: 46px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, .055);
+}
+
+.v155-entity-card.artist .v155-entity-cover {
+  border-radius: 50%;
+}
+
+.v155-result-copy {
+  min-width: 0;
+}
+
+.v155-result-name,
+.v155-result-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v155-result-name {
+  color: rgba(255, 255, 255, .88);
+  font-size: 11.5px;
+  font-weight: 680;
+}
+
+.v155-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: rgba(255, 255, 255, .38);
+  font-size: 9.8px;
+}
+
+.v155-result-meta .v155-youtube-source-badge {
+  height: 16px;
+  flex: 0 0 auto;
+  padding: 0 5px;
+  font-size: 8px;
+}
+
+.queue-source-badge {
+  height: 15px;
+  margin-right: 5px;
+  padding: 0 4px;
+  font-size: 7.5px;
+  vertical-align: -2px;
+}
+
+.v155-result-action {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 78, 94, .1);
+  color: rgba(255, 153, 162, .92);
+  font-size: 11px;
+}
+
+.v155-search-empty {
+  padding: 12px 7px;
+  color: rgba(255, 255, 255, .3);
+  font-size: 10px;
+}
+
+.v155-load-more {
+  display: block;
+  margin: 8px auto 3px;
+}
+
+.login-platform-tabs button.youtube.active,
+.user-platform-tabs button.youtube.active {
+  background: rgba(255, 78, 94, .16);
+  color: #ffd8dc;
+}
+
+.account-provider-chip.youtube {
+  border-color: rgba(255, 78, 94, .28);
+  background: rgba(255, 78, 94, .08);
+  color: #ffd8dc;
+}
+
+.account-source-dot.youtube {
+  background: #ff4e5e;
+  color: #ff4e5e;
+}
+
+.v155-main-login-panel {
+  margin: 2px 0 14px;
+  padding: 15px;
+  border: 1px solid rgba(255, 78, 94, .18);
+  border-radius: 8px;
+  background: rgba(255, 78, 94, .045);
+  text-align: left;
+}
+
+.v155-main-login-panel[hidden] {
+  display: none;
+}
+
+.v155-main-login-mark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 12px;
+  border: 1px solid rgba(255, 78, 94, .36);
+  border-radius: 50%;
+  background: rgba(255, 78, 94, .12);
+  color: #ff8994;
+  font: 800 12px/1 var(--font-mono);
+}
+
+.v155-main-login-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  text-align: center;
+}
+
+.v155-main-login-copy > div {
+  min-width: 0;
+}
+
+.v155-main-login-copy b,
+.v155-main-login-copy span {
+  display: block;
+}
+
+.v155-main-login-copy b {
+  overflow: hidden;
+  color: rgba(255, 255, 255, .92);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v155-main-login-copy span {
+  margin-top: 5px;
+  color: rgba(255, 255, 255, .46);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.v155-main-login-copy span.error {
+  color: #ffb6bf;
+}
+
+.v155-main-login-avatar {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.v155-main-login-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.v155-main-login-actions .modal-btn {
+  min-width: 118px;
+}
+
+.v155-user-account-content {
+  grid-column: 1 / -1;
+}
+
+.v155-user-account-content {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.v155-user-account-content[hidden] {
+  display: none;
+}
+
+.v155-user-account-content .modal-btn {
+  min-width: 0;
+  padding-inline: 8px;
+}
+
+.v155-top-youtube-badge {
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 78, 94, .28);
+  border-radius: 3px;
+  background: rgba(255, 78, 94, .08);
+  color: #ffb6bf;
+  font: 700 8px/1 var(--font-mono);
+}
+
+.v155-external-action,
+.v155-detail-external {
+  color: rgba(255, 182, 191, .82);
+  font: 700 14px/1 var(--font-mono);
+}
+
+.v155-detail-external {
+  width: 28px;
+  text-align: center;
+}
+
+.search-result-main.v155-external-result::after {
+  content: "↗";
+  flex: 0 0 auto;
+  margin-left: 8px;
+  color: rgba(255, 182, 191, .82);
+  font: 700 14px/1 var(--font-mono);
+}
+
+#v155-youtube-detail {
+  z-index: 59;
+}
+
+.v155-detail-modal {
+  width: min(920px, 94vw);
+  height: min(720px, 88vh);
+  max-width: none;
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  text-align: left;
+}
+
+.v155-detail-head {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 15px;
+  align-items: center;
+  padding: 17px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, .065);
+}
+
+.v155-detail-cover {
+  width: 96px;
+  height: 96px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, .055);
+}
+
+.v155-detail-kind {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(255, 100, 114, .82);
+  font: 750 9px/1 var(--font-mono);
+}
+
+.v155-detail-title {
+  margin-top: 6px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .93);
+  font-size: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v155-detail-meta,
+.v155-detail-description {
+  color: rgba(255, 255, 255, .4);
+  font-size: 10px;
+}
+
+.v155-detail-meta {
+  margin-top: 6px;
+}
+
+.v155-detail-description {
+  max-width: 650px;
+  margin-top: 7px;
+  overflow: hidden;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v155-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.v155-detail-close {
+  align-self: start;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .04);
+  color: rgba(255, 255, 255, .62);
+  font-size: 19px;
+  cursor: pointer;
+}
+
+.v155-detail-window-actions {
+  display: flex;
+  align-self: start;
+  gap: 6px;
+}
+
+.v155-detail-back {
+  font-size: 16px;
+}
+
+.v155-detail-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 16px 16px;
+}
+
+.v155-detail-row {
+  display: grid;
+  grid-template-columns: 28px 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, .045);
+}
+
+.v155-detail-index {
+  color: rgba(255, 255, 255, .25);
+  font: 600 9px/1 var(--font-mono);
+  text-align: center;
+}
+
+.v155-detail-row img {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, .055);
+}
+
+.v155-detail-main {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.v155-detail-more {
+  display: block;
+  margin: 12px auto 0;
+}
+
+.v155-inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin: 12px auto 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 78, 94, .18);
+  border-radius: 6px;
+  background: rgba(255, 78, 94, .055);
+  color: #ffb6bf;
+  font-size: 10px;
+}
+
+#v155-youtube-account-view {
+  z-index: 59;
+}
+
+.v155-account-view-modal {
+  width: min(880px, 94vw);
+  height: min(700px, 88vh);
+  max-width: none;
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  text-align: left;
+}
+
+.v155-account-view-head {
+  min-height: 88px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 17px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, .065);
+}
+
+.v155-account-view-head > div {
+  min-width: 0;
+}
+
+.v155-account-view-head h2 {
+  margin: 9px 0 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .93);
+  font-size: 18px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v155-account-view-head p {
+  margin: 6px 0 0;
+  color: rgba(255, 255, 255, .38);
+  font-size: 10px;
+}
+
+.v155-account-view-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 16px 16px;
+}
+
+.v155-account-view-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 0 8px;
+}
+
+.v155-account-song-list {
+  min-width: 0;
+}
+
+.v155-account-entity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.v155-account-retry {
+  display: block;
+  margin: -42px auto 0;
+}
+
+#v155-youtube-types button:focus-visible,
+.v155-search-state button:focus-visible,
+.v155-search-head button:focus-visible,
+.v155-song-row:focus-visible,
+.v155-entity-card:focus-visible,
+.v155-detail-main:focus-visible,
+.v155-detail-row .add-btn:focus-visible,
+.v155-detail-more:focus-visible,
+.v155-detail-close:focus-visible,
+.v155-account-view-toolbar button:focus-visible {
+  outline: 2px solid rgba(255, 112, 125, .95);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(8, 10, 13, .82);
+}
+
+@media (max-width: 820px) {
+  .v155-song-grid,
+  .v155-entity-grid,
+  .v155-account-entity-grid {
+    grid-template-columns: 1fr;
+  }
+
+}
+
+@media (max-width: 560px) {
+  .v155-detail-modal,
+  .v155-account-view-modal {
+    width: 100vw;
+    height: 100vh;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .v155-detail-head {
+    grid-template-columns: 74px minmax(0, 1fr) auto;
+    padding: 13px;
+  }
+
+  .v155-detail-cover {
+    width: 74px;
+    height: 74px;
+  }
+}

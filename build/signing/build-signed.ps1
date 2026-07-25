@@ -26,7 +26,13 @@ if (-not (Test-Path -LiteralPath $builderPath)) {
 }
 
 $previousEnvironment = @{}
-foreach ($name in @('WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD', 'SIGNTOOL_PATH')) {
+foreach ($name in @(
+    'WIN_CSC_LINK',
+    'WIN_CSC_KEY_PASSWORD',
+    'SIGNTOOL_PATH',
+    'MINERADIO_GOOGLE_OAUTH_CLIENT_FILE',
+    'MINERADIO_GOOGLE_OAUTH_MODE'
+)) {
     $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 
@@ -41,6 +47,31 @@ if ($null -eq $certificatePassword) {
 }
 
 try {
+    $googleOAuthClientPath = [Environment]::GetEnvironmentVariable('MINERADIO_GOOGLE_OAUTH_CLIENT_FILE', 'Process')
+    $defaultGoogleOAuthClientPath = Join-Path $secretDir 'google-oauth-desktop.json'
+    if ([string]::IsNullOrWhiteSpace($googleOAuthClientPath) -and (Test-Path -LiteralPath $defaultGoogleOAuthClientPath -PathType Leaf)) {
+        $googleOAuthClientPath = $defaultGoogleOAuthClientPath
+    }
+    if (-not [string]::IsNullOrWhiteSpace($googleOAuthClientPath) -and -not (Test-Path -LiteralPath $googleOAuthClientPath -PathType Leaf)) {
+        throw "Configured Google OAuth client file was not found: $googleOAuthClientPath"
+    }
+
+    $googleOAuthMode = [Environment]::GetEnvironmentVariable('MINERADIO_GOOGLE_OAUTH_MODE', 'Process')
+    if ([string]::IsNullOrWhiteSpace($googleOAuthMode)) {
+        $googleOAuthMode = if ($Target -eq 'nsis') { 'required' } else { 'auto' }
+    }
+    $googleOAuthMode = $googleOAuthMode.Trim().ToLowerInvariant()
+    if ($googleOAuthMode -notin @('auto', 'required', 'off')) {
+        throw "Invalid MINERADIO_GOOGLE_OAUTH_MODE: $googleOAuthMode"
+    }
+    if ($googleOAuthMode -eq 'off') {
+        $googleOAuthClientPath = $null
+    } elseif ($googleOAuthMode -eq 'required' -and [string]::IsNullOrWhiteSpace($googleOAuthClientPath)) {
+        throw "A Google Desktop OAuth client is required for release builds. Place it at $defaultGoogleOAuthClientPath or set MINERADIO_GOOGLE_OAUTH_CLIENT_FILE."
+    }
+    [Environment]::SetEnvironmentVariable('MINERADIO_GOOGLE_OAUTH_CLIENT_FILE', $googleOAuthClientPath, 'Process')
+    [Environment]::SetEnvironmentVariable('MINERADIO_GOOGLE_OAUTH_MODE', $googleOAuthMode, 'Process')
+
     if ([string]::IsNullOrWhiteSpace($certificateLink)) {
         $localPfxExists = Test-Path -LiteralPath $localPfxPath -PathType Leaf
         $localCredentialExists = Test-Path -LiteralPath $localCredentialPath -PathType Leaf

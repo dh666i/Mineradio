@@ -4,6 +4,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const transition = require('../../public/js/core/audio-transition');
 
+test('YouTube external results never receive internal transition keys', () => {
+  const youtube = {
+    id: 'video-1',
+    videoId: 'video-1',
+    provider: 'youtube',
+    type: 'youtube',
+    name: 'Track',
+  };
+  assert.equal(transition.isExternalOnlySong(youtube), true);
+  assert.equal(transition.songStableKey(youtube), '');
+});
+
 function queue() {
   return [
     { id: 101, name: 'First', artist: 'A', duration: 240 },
@@ -96,8 +108,9 @@ test('mode, disabled transition, and stop-after-current prevent auto transition'
   assert.equal(transition.assessTransitionEligibility({ ...base, playMode: 'loop', stopAfterCurrent: true }).reason, 'stop_after_current');
 });
 
-test('podcast, local, duplicate, and missing songs are never transitioned', () => {
+test('external, podcast, local, duplicate, and missing songs are never transitioned', () => {
   const base = { transition: 'gapless', currentIndex: 0, playMode: 'loop' };
+  assert.equal(transition.assessTransitionEligibility({ ...base, queue: [{ id: 'video-1', provider: 'youtube' }, { id: 2 }] }).reason, 'external_only_track');
   assert.equal(transition.assessTransitionEligibility({ ...base, queue: [{ id: 1, type: 'podcast' }, { id: 2 }] }).reason, 'podcast_track');
   assert.equal(transition.assessTransitionEligibility({ ...base, queue: [{ id: 1 }, { id: 2, source: 'local' }] }).reason, 'local_track');
   assert.equal(transition.assessTransitionEligibility({ ...base, queue: [{ id: 1 }, { id: 1 }] }).reason, 'same_track');

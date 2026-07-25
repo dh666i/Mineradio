@@ -8,6 +8,7 @@ Mineradio 是本地桌面应用。项目不应把用户登录状态、Cookie、�
 
 - 使用 Electron `safeStorage` 和 Windows DPAPI 加密保存的网易云音乐登录 Cookie
 - 使用 Electron `safeStorage` 和 Windows DPAPI 加密保存的 QQ 音乐登录 Cookie
+- 使用 Electron `safeStorage` 和 Windows DPAPI 加密保存的 YouTube OAuth 登录令牌
 - 搜索历史
 - 自定义专辑封面
 - 自定义歌词
@@ -30,8 +31,10 @@ Mineradio 是本地桌面应用。项目不应把用户登录状态、Cookie、�
 - `node_modules/`
 - Electron 打包产物
 - 用户上传的本地音乐文件
-- 用户账号信息、Cookie、Token、二维码登录状态
+- 用户账号信息、Cookie、Token、维护者 OAuth 客户端源文件、二维码登录状态
 
 ## 第三方平台
 
-用户通过网易云音乐、QQ 音乐等第三方平台登录时，应遵守对应平台的用户协议。Mineradio 不提供绕过付费、绕过会员、破解音质或重新分发音乐内容的能力。
+用户通过网易云音乐、QQ 音乐、Google 或 YouTube 等第三方平台登录时，应遵守对应平台的用户协议。YouTube Data API 请求仅在用户明确选择 YouTube Music 搜索或账号内容后发起；点击视频会交由系统浏览器在 YouTube 或 YouTube Music 官方页面打开，Mineradio 不使用隐藏 IFrame 播放 YouTube 内容。Mineradio 不提供绕过付费、绕过会员、破解音质或重新分发音乐内容的能力。
+
+YouTube 登录会在系统浏览器的 Google 官方页面中完成。Mineradio 不接收或保存 Google 密码；发行包只包含应用自身的桌面 OAuth 公共客户端标识，用户令牌仅保存在当前 Windows 用户的加密存储中。

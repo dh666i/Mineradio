@@ -2537,6 +2537,72 @@ ipcMain.handle('mineradio-import-json-file', async (event) => {
   }
 });
 
+ipcMain.handle('youtube-oauth-open', async (event, targetUrl) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    if (parsed.protocol !== 'https:'
+      || parsed.hostname !== 'accounts.google.com'
+      || parsed.pathname !== '/o/oauth2/v2/auth') {
+      return { ok: false, error: 'YOUTUBE_OAUTH_URL_INVALID' };
+    }
+    await shell.openExternal(parsed.toString());
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'YOUTUBE_OAUTH_OPEN_FAILED' };
+  }
+});
+
+function normalizeYouTubeContentUrl(targetUrl) {
+  try {
+    const parsed = new URL(String(targetUrl || ''));
+    const host = parsed.hostname.toLowerCase();
+    const allowedHost = host === 'music.youtube.com' || host === 'www.youtube.com' || host === 'youtube.com';
+    if (parsed.protocol !== 'https:' || !allowedHost || parsed.username || parsed.password || parsed.port) return '';
+    const safeId = (value, maxLength) => {
+      const text = String(value || '').trim();
+      return text && text.length <= maxLength && /^[A-Za-z0-9_-]+$/.test(text) ? text : '';
+    };
+    let canonical = null;
+    if (parsed.pathname === '/watch') {
+      const videoId = safeId(parsed.searchParams.get('v'), 64);
+      if (!videoId) return '';
+      canonical = new URL(`https://${host}/watch`);
+      canonical.searchParams.set('v', videoId);
+    } else if (parsed.pathname === '/playlist') {
+      const playlistId = safeId(parsed.searchParams.get('list'), 200);
+      if (!playlistId) return '';
+      canonical = new URL(`https://${host}/playlist`);
+      canonical.searchParams.set('list', playlistId);
+    } else {
+      const channelMatch = parsed.pathname.match(/^\/channel\/([A-Za-z0-9_-]{1,128})\/?$/);
+      if (channelMatch) {
+        canonical = new URL(`https://${host}/channel/${channelMatch[1]}`);
+      } else if (host === 'music.youtube.com' && parsed.pathname === '/search') {
+        const query = String(parsed.searchParams.get('q') || '').trim();
+        if (!query || query.length > 200) return '';
+        canonical = new URL('https://music.youtube.com/search');
+        canonical.searchParams.set('q', query);
+      }
+    }
+    return canonical ? canonical.toString() : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+ipcMain.handle('youtube-content-open', async (event, targetUrl) => {
+  if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
+  const safeUrl = normalizeYouTubeContentUrl(targetUrl);
+  if (!safeUrl) return { ok: false, error: 'YOUTUBE_CONTENT_URL_INVALID' };
+  try {
+    await shell.openExternal(safeUrl);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'YOUTUBE_CONTENT_OPEN_FAILED' };
+  }
+});
+
 ipcMain.handle('netease-music-open-login', async (event) => {
   if (!isTrustedMainRenderer(event)) return { ok: false, error: 'IPC_FORBIDDEN' };
   const result = await openNeteaseMusicLoginWindow(getSenderWindow(event));
@@ -2779,6 +2845,13 @@ async function createWindow() {
   process.env.PORT = String(port);
   process.env.COOKIE_FILE = path.join(app.getPath('userData'), '.cookie');
   process.env.QQ_COOKIE_FILE = path.join(app.getPath('userData'), '.qq-cookie');
+  process.env.YOUTUBE_API_KEY_FILE = path.join(app.getPath('userData'), '.youtube-api-key');
+  process.env.YOUTUBE_OAUTH_CLIENT_FILE = path.join(app.getPath('userData'), '.youtube-oauth-client');
+  process.env.YOUTUBE_OAUTH_TOKEN_FILE = path.join(app.getPath('userData'), '.youtube-oauth-token');
+  const googleOAuthClientOverride = String(process.env.MINERADIO_GOOGLE_OAUTH_CLIENT_FILE || '').trim();
+  process.env.YOUTUBE_OAUTH_BUNDLED_CLIENT_FILE = googleOAuthClientOverride || (app.isPackaged
+    ? path.join(process.resourcesPath, 'mineradio-config', 'youtube-oauth-client.json')
+    : path.join(__dirname, '..', '.cert', 'google-oauth-desktop.json'));
   process.env.MINERADIO_UPDATE_DIR = getUpdateDownloadDir();
   const stagedLegacyCredentials = stageLegacyCredentialFiles(process.env.COOKIE_FILE, process.env.QQ_COOKIE_FILE);
 

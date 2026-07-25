@@ -4,14 +4,14 @@
 
 - 正式仓库：`https://github.com/dh666i/Mineradio`。
 - `package.json` 中 `build.publish` 与 `mineradio.update` 必须指向 `dh666i/Mineradio`。
-- 当前源码基线和稳定安装版为 `1.5.4`；README、SECURITY 与 Release 资产必须保持一致。
+- 当前源码基线和稳定安装版为 `1.5.5`；README、SECURITY 与 Release 资产必须保持一致。
 - 更新元数据只从 GitHub 官方 HTTPS 获取；安装包镜像会在下载前测速，最终文件仍须通过 Release 摘要与签名校验。
 - 技术 `appId` 使用 `com.dh666i.mineradio`，用户数据目录使用 `%APPDATA%\dh666i\Mineradio`；界面产品名保持 `Mineradio`。
 
-## v1.5.4 发布准备
+## v1.5.5 发布准备
 
-- Tag：`v1.5.4`
-- 标题：`Mineradio v1.5.4`
+- Tag：`v1.5.5`
+- 标题：`Mineradio v1.5.5`
 - 使用同一份持久化自签名证书构建所有后续版本；丢失证书会导致已安装版本拒绝自动打开新安装包。
 - 构建与验证脚本必须匹配已发布证书指纹 `FD7B0DCE709B69C049336CE4817E340E62C8F174`。
 - 固定 NSIS `guid` 为 v1.2.0 使用的 `9733721a-009e-52bc-b705-49059cd80258`，修改 `appId` 时不得改变升级身份。
@@ -21,10 +21,10 @@
 
 发布资产：
 
-- `dist/Mineradio-1.5.4-Setup.exe`
-- `dist/Mineradio-1.5.4-Setup.exe.blockmap`
+- `dist/Mineradio-1.5.5-Setup.exe`
+- `dist/Mineradio-1.5.5-Setup.exe.blockmap`
 - `dist/latest.yml`
-- `dist/Mineradio-1.5.4-SHA256SUMS.txt`
+- `dist/Mineradio-1.5.5-SHA256SUMS.txt`
 
 ## v1.2.0 发布
 
@@ -46,7 +46,8 @@
 ## 发布前检查
 
 - 确认 `package.json` 与 `package-lock.json` 版本一致，发布源指向 `dh666i/Mineradio`。
-- 使用 `npm ci` 从锁文件安装依赖，并确认生产依赖和完整依赖的 `npm audit` 均无已知漏洞。
+- 使用 `npm ci` 从锁文件安装依赖，并确认 `npm audit --omit=dev` 无生产依赖漏洞。
+- 运行完整 `npm audit`；无法非破坏性修复的纯构建期传递依赖告警必须记录影响边界，并确认相关包不会进入安装版运行时。不得仅为清零审计而使用 `--force` 降级构建或签名工具链。
 - 确认 `.cookie`、`.qq-cookie`、`updates/`、`node_modules/`、`dist/` 和其他可执行产物没有进入 Git。
 - 运行 `git diff --check`、Node 语法检查、前端内联 CSS/JavaScript 解析。
 - 先执行 `npm run build:win:dir`，核对签名、时间戳、打包版本、EXE 元数据、许可证文件和运行时依赖。
