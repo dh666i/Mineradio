@@ -212,7 +212,7 @@ body.empty-home-active.diy-mode #search-area:not(.has-results) #search-mode-tabs
 .search-artist-link:hover{color:#fff;text-decoration:underline;text-underline-offset:3px}
 .tag-vip{display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;background:linear-gradient(135deg,#fff3c2,var(--champagne),#c9963d);color:#201303;font-weight:700;letter-spacing:.5px;flex-shrink:0;box-shadow:0 0 10px rgba(244,210,138,.22)}
 .tag-podcast{display:inline-block;font-size:9px;padding:1px 6px;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.58);font-weight:750;letter-spacing:.7px;flex-shrink:0}
-.tag-source{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);font-size:8.5px;font-weight:800;letter-spacing:.55px;line-height:1;flex-shrink:0}
+.tag-source{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);font-size:8.5px;font-weight:800;letter-spacing:0;line-height:1;white-space:nowrap;flex-shrink:0}
 .tag-source.netease{color:#ffd8dd;border-color:rgba(217,91,103,.30);background:rgba(217,91,103,.075)}
 .tag-source.qq{color:#f0ffc8;border-color:rgba(191,214,107,.30);background:rgba(191,214,107,.075)}
 .search-result.qq-source:hover{background:rgba(191,214,107,.052)}
@@ -877,7 +877,7 @@ body.login-guide-active #login-guide-canvas{opacity:1}
 .daily-recommend-row .name,.daily-recommend-row .artist,.daily-recommend-row .album{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .daily-recommend-row .name{font-size:12.5px;font-weight:680;color:rgba(255,255,255,.90)}
 .daily-recommend-row .artist,.daily-recommend-row .album{font-size:10.5px;color:rgba(255,255,255,.38);margin-top:4px}
-.daily-recommend-row .source{font-size:9px;font-weight:760;letter-spacing:.08em;color:#ffd7dc;border:1px solid rgba(217,91,103,.24);background:rgba(217,91,103,.08);border-radius:999px;padding:4px 7px}
+.daily-recommend-row .source{font-size:9px;font-weight:760;letter-spacing:0;white-space:nowrap;color:#ffd7dc;border:1px solid rgba(217,91,103,.24);background:rgba(217,91,103,.08);border-radius:999px;padding:4px 7px}
 .daily-recommend-empty{min-height:260px;display:flex;align-items:center;justify-content:center;padding:28px;text-align:center;font-size:12px;line-height:1.7;color:rgba(255,255,255,.42)}
 @media (max-width:680px){.daily-recommend-modal{height:92vh}.daily-recommend-head{grid-template-columns:1fr;padding:20px}.daily-recommend-actions{flex-wrap:wrap}.daily-recommend-row{grid-template-columns:24px 42px minmax(0,1fr) auto}.daily-recommend-row .album{display:none}}
 .cover-crop-modal{width:min(720px,92vw);max-width:min(720px,92vw);padding:28px;text-align:left}
@@ -13613,7 +13613,7 @@ function makeShelfManager() {
       var source = activePlaylists();
       var items = source.map(function(pl){
         var provider = pl.provider === 'qq' ? 'qq' : 'netease';
-        var sourceLabel = provider === 'qq' ? 'QQ' : 'NE';
+        var sourceLabel = provider === 'qq' ? 'QQ音乐' : '网易云';
         return { type:'playlist', title: pl.name, sub:sourceLabel + ' · ' + (pl.trackCount||0)+' 首 · 播放 '+compactCount(pl.playCount||0),
           cover: pl.cover || '', tag: pl.subscribed ? '收藏歌单' : '我的歌单', playlistId: (provider === 'qq' ? 'qq:' : '') + pl.id, provider: provider };
       });
@@ -16056,7 +16056,7 @@ function renderDailyRecommendDetail() {
       '<span class="index">' + String(index + 1).padStart(2, '0') + '</span>' + coverHtml +
       '<span class="track"><span class="name">' + escHtml(song.name || '未知歌曲') + '</span><span class="artist">' + escHtml(song.artist || '未知歌手') + '</span></span>' +
       '<span class="album">' + escHtml(song.album || '网易云音乐') + '</span>' +
-      '<span class="source">NE</span>' +
+      '<span class="source">网易云</span>' +
     '</button>';
   }).join('');
 }
@@ -18601,7 +18601,7 @@ function songProviderKey(song) {
 }
 function songSourceTagHtml(song) {
   var key = songProviderKey(song);
-  var label = key === 'qq' ? 'QQ' : 'NE';
+  var label = key === 'qq' ? 'QQ音乐' : '网易云';
   return '<span class="tag-source ' + key + '">' + label + '</span>';
 }
 function searchResultMetaText(song) {
@@ -21014,7 +21014,7 @@ function renderUserPlaylistsList(opts) {
   }
   function playlistCardHtml(pl) {
     var provider = pl.provider === 'qq' ? 'qq' : 'netease';
-    var providerLabel = provider === 'qq' ? 'QQ' : 'NE';
+    var providerLabel = provider === 'qq' ? 'QQ音乐' : '网易云';
     var thumb = pl.cover ? (provider === 'qq' ? pl.cover : (pl.cover + '?param=88y88')) : '';
     var imgTag = thumb ? '<img src="' + thumb + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=0.2">' : '<div style="width:44px;height:44px;border-radius:8px;background:rgba(255,255,255,.06);flex-shrink:0"></div>';
     var key = playlistPanelKey(provider, pl.id);
