@@ -106,7 +106,12 @@ try {
         }
     }
 
-    $builderArguments = @('--win', $Target, '--config.forceCodeSigning=true')
+    $builderArguments = @(
+        '--win',
+        $Target,
+        '--config.forceCodeSigning=true',
+        '--config.win.signAndEditExecutable=true'
+    )
     $installedElectron = Join-Path $projectRoot 'node_modules\electron\dist\electron.exe'
     if (Test-Path -LiteralPath $installedElectron -PathType Leaf) {
         $builderArguments += '--config.electronDist=node_modules/electron/dist'

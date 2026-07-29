@@ -1,8 +1,8 @@
 {
   "name": "mineradio",
   "productName": "Mineradio",
-  "version": "1.5.4",
-  "description": "Mineradio Windows 桌面音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
+  "version": "3.0.1",
+  "description": "Mineradio Electron 桌面音乐播放器，融合天气电台、歌词舞台、粒子视觉和 3D 歌单架。",
   "author": "dh666i",
   "license": "GPL-3.0-only",
   "repository": {
@@ -25,11 +25,14 @@
     "check:desktop": "node --check desktop/main.js && node --check desktop/preload.js && node --check desktop/overlay-preload.js",
     "check:all": "node --check server.js && npm run check:desktop && npm run check:ui && npm test",
     "cert:self-sign": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/generate-self-signed-cert.ps1",
-    "build:win": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target nsis",
-    "build:win:dir": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target dir",
+    "build:win": "electron-builder --win nsis --config.win.signAndEditExecutable=false",
+    "build:win:dir": "electron-builder --win dir --config.win.signAndEditExecutable=false",
     "build:win:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target nsis",
-    "build:win:unsigned": "electron-builder --win nsis --config.win.signExecutable=false",
-    "build:win:dir:unsigned": "electron-builder --win dir --config.win.signExecutable=false",
+    "build:win:dir:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/build-signed.ps1 -Target dir",
+    "build:win:unsigned": "npm run build:win",
+    "build:win:dir:unsigned": "npm run build:win:dir",
+    "build:mac": "electron-builder --mac dmg zip --x64 --arm64",
+    "build:mac:dir": "electron-builder --mac dir",
     "verify:win:signatures": "powershell -NoProfile -ExecutionPolicy Bypass -File build/signing/verify-signatures.ps1 -Target nsis"
   },
   "build": {
@@ -46,8 +49,14 @@
     "files": [
       "desktop/**/*",
       "public/**/*",
-      "build/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "lib/**/*",
+      "kugou-api.js",
+      "qishui-api.js",
+      "qq-vip-api.js",
+      "spotify-api.js",
+      "qishui-audio-decryptor/**/*",
       "server.js",
       "dj-analyzer.js",
       "package.json",
@@ -62,7 +71,7 @@
     "win": {
       "executableName": "Mineradio",
       "icon": "build/icon.ico",
-      "signAndEditExecutable": true,
+      "signAndEditExecutable": false,
       "signtoolOptions": {
         "publisherName": "Mineradio",
         "signingHashAlgorithms": [
@@ -78,6 +87,30 @@
           ]
         }
       ]
+    },
+    "mac": {
+      "category": "public.app-category.music",
+      "icon": "build/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "Mineradio-${version}-${arch}.${ext}"
     },
     "nsis": {
       "guid": "9733721a-009e-52bc-b705-49059cd80258",
@@ -120,7 +153,8 @@
   "dependencies": {
     "gsap": "^3.15.0",
     "mpg123-decoder": "^1.0.3",
-    "NeteaseCloudMusicApi": "^4.32.0"
+    "NeteaseCloudMusicApi": "^4.32.0",
+    "pinyin-pro": "^3.28.1"
   },
   "overrides": {
     "NeteaseCloudMusicApi": {
@@ -130,7 +164,7 @@
   },
   "devDependencies": {
     "electron": "^42.4.1",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "26.15.7",
     "rcedit": "^5.0.2"
   }
 }

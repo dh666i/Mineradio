@@ -47,6 +47,8 @@ test('maps typed search responses to stable artist, album, and playlist records'
   }, 'artist');
   assert.equal(artistResult.apiType, 100);
   assert.equal(artistResult.total, 8);
+  assert.equal(artistResult.rawCount, 1);
+  assert.equal(artistResult.upstreamHasMore, false);
   assert.deepEqual(artistResult.items[0], {
     provider: 'netease',
     source: 'netease',
@@ -85,6 +87,28 @@ test('maps typed search responses to stable artist, album, and playlist records'
   assert.equal(playlistResult.items[0].creator, 'Owner');
   assert.equal(playlistResult.items[0].creatorId, 9);
   assert.equal(normalizeTypedSearchType('song'), '');
+});
+
+test('typed search preserves the upstream page size when malformed records are filtered', () => {
+  const result = mapTypedSearchResult({
+    result: {
+      playlistCount: 50,
+      more: true,
+      playlists: [
+        { id: 3, name: 'Playlist', coverImgUrl: 'list.jpg' },
+        { id: null, name: 'Missing id' },
+        { id: 4, name: '' },
+      ],
+    },
+  }, 'playlist');
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.rawCount, 3);
+  assert.equal(result.upstreamHasMore, true);
+  assert.deepEqual(
+    resolvePageCursor({ limit: 3, offset: 6 }, result.total, result.rawCount, result.upstreamHasMore),
+    { total: 50, nextOffset: 9, more: true, hasMore: true },
+  );
 });
 
 test('maps complete playlist metadata without dropping ownership and management fields', () => {

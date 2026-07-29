@@ -2,10 +2,10 @@
 
 ## Project Identity
 
-Mineradio is a Windows Electron desktop music player. Its core experience includes music search and playback, playlists, lyrics, a 3D playlist shelf, particle visuals, DIY controls, and GitHub updates.
+Mineradio is an Electron desktop music player with a stable Windows build and macOS preview builds. Its core experience includes music search and playback, playlists, lyrics, a 3D playlist shelf, particle visuals, DIY controls, and GitHub updates.
 
 - Repository: `https://github.com/dh666i/Mineradio.git`
-- Current source version: `v1.5.4`
+- Current source version: `v3.0.1`
 - Desktop entry: `desktop/main.js`
 - Main UI: `public/index.html`
 
@@ -30,6 +30,7 @@ npm start
 node --check server.js
 npm run build:win:dir
 npm run build:win
+npm run build:mac
 ```
 
 There is no standalone automated test suite. For every code change, run at least:

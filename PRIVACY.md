@@ -6,9 +6,10 @@ Mineradio 是本地桌面应用。项目不应把用户登录状态、Cookie、�
 
 应用可能在本机保存以下数据：
 
-- 使用 Electron `safeStorage` 和 Windows DPAPI 加密保存的网易云音乐登录 Cookie
-- 使用 Electron `safeStorage` 和 Windows DPAPI 加密保存的 QQ 音乐登录 Cookie
+- 使用 Electron `safeStorage`（Windows DPAPI / macOS Keychain）保护的网易云音乐、QQ 音乐、酷狗音乐和汽水音乐登录 Cookie 或会话信息
+- 使用 Electron `safeStorage`（Windows DPAPI / macOS Keychain）保护的 Spotify OAuth Token；Spotify Client ID 不是密钥，不保存 Client Secret
 - 搜索历史
+- 用户主动导入的公开分享歌单索引
 - 自定义专辑封面
 - 自定义歌词
 - 歌词布局与视觉控制设置
@@ -34,4 +35,6 @@ Mineradio 是本地桌面应用。项目不应把用户登录状态、Cookie、�
 
 ## 第三方平台
 
-用户通过网易云音乐、QQ 音乐等第三方平台登录时，应遵守对应平台的用户协议。Mineradio 不提供绕过付费、绕过会员、破解音质或重新分发音乐内容的能力。
+用户通过网易云音乐、QQ 音乐、酷狗音乐、汽水音乐或 Spotify 登录时，应遵守对应平台的用户协议。Mineradio 不提供绕过付费、绕过会员、破解音质或重新分发音乐内容的能力。
+
+天气电台在用户请求定位时会访问 `ipwho.is`，由该服务根据当前公网 IP 返回城市、经纬度和时区；应用不会向项目作者的服务器上传定位结果。用户也可以直接手动输入城市，不使用网络位置。

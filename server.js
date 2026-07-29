@@ -79,6 +79,29 @@ const {
   normalizeNeteaseId,
 } = require('./lib/netease-playlist-policy');
 const {
+  parseBlockMapBuffer,
+  planDifferentialAssembly,
+  verifyCopiedBlock,
+  describeDifferentialPlan,
+} = require('./lib/update-differ');
+const {
+  createProviderRoutes,
+  MUTATING_POST_ROUTES: PROVIDER_MUTATING_POST_ROUTES,
+  POST_ONLY_ROUTES: PROVIDER_POST_ONLY_ROUTES,
+} = require('./lib/provider-routes');
+const {
+  createQishuiAudioProxy,
+  sendAudioBuffer: sendQishuiAudioBuffer,
+} = require('./lib/qishui-audio-proxy');
+const { resolveSharedPlaylistWithTracks } = require('./lib/shared-playlist-resolver');
+const { createMediaProxy, validatedContentType } = require('./lib/media-proxy');
+const {
+  normalizeQQVipPayload: normalizeQQVipPayloadStrict,
+  resolveQQVipFromProbes,
+  qqVipSessionCacheKey,
+  qqVipCacheTtlMs,
+} = require('./qq-vip-api');
+const {
   TYPED_SEARCH_TYPES,
   mapNeteaseAlbum,
   mapNeteaseArtist,
@@ -92,6 +115,51 @@ const {
   resolvePageCursor,
 } = require('./lib/netease-catalog');
 
+const PROVIDER_TYPED_SEARCH_TYPES = Object.freeze({
+  netease: Object.freeze(['artist', 'album', 'playlist']),
+  qq: Object.freeze(['artist', 'playlist']),
+  kugou: Object.freeze(['playlist']),
+  qishui: Object.freeze(['playlist']),
+  spotify: Object.freeze(['album', 'playlist']),
+});
+
+function normalizeTypedSearchProvider(value) {
+  const provider = String(value == null ? 'netease' : value).trim().toLowerCase();
+  const aliases = {
+    '': 'netease',
+    ne: 'netease',
+    netease: 'netease',
+    'netease-cloud-music': 'netease',
+    wangyiyun: 'netease',
+    qq: 'qq',
+    qqmusic: 'qq',
+    'qq-music': 'qq',
+    kg: 'kugou',
+    kugou: 'kugou',
+    'kugou-music': 'kugou',
+    qs: 'qishui',
+    qishui: 'qishui',
+    soda: 'qishui',
+    'soda-music': 'qishui',
+    sp: 'spotify',
+    spotify: 'spotify',
+  };
+  return aliases[provider] || '';
+}
+
+function typedSearchListKey(type) {
+  return type === 'artist' ? 'artists' : (type === 'album' ? 'albums' : 'playlists');
+}
+
+function typedSearchErrorStatus(error, fallback) {
+  const code = String(error || '').toUpperCase();
+  if (/AUTH|LOGIN|COOKIE|TOKEN.*REQUIRED|UNAUTHORIZED/.test(code)) return 401;
+  if (/RATE|429/.test(code)) return 429;
+  if (/INVALID|UNSUPPORTED|MISSING/.test(code)) return 400;
+  const explicit = Number(fallback);
+  return explicit >= 400 && explicit <= 599 ? explicit : 502;
+}
+
 let electronSafeStorage = null;
 try {
   const electron = require('electron');
@@ -100,17 +168,63 @@ try {
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
+const RUNTIME_PLATFORM = String(process.env.MINERADIO_RUNTIME_PLATFORM || process.platform).toLowerCase();
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const COOKIE_FILE = process.env.COOKIE_FILE || path.join(__dirname, '.cookie');
 const QQ_COOKIE_FILE = process.env.QQ_COOKIE_FILE || path.join(__dirname, '.qq-cookie');
 const UPDATE_WORK_DIR = process.env.MINERADIO_UPDATE_DIR || path.join(__dirname, 'updates');
 const UPDATE_DOWNLOAD_DIR = process.env.MINERADIO_UPDATE_DOWNLOAD_DIR || path.join(UPDATE_WORK_DIR, 'downloads');
-const UPDATE_PATCH_BACKUP_DIR = process.env.MINERADIO_PATCH_BACKUP_DIR || path.join(UPDATE_WORK_DIR, 'backups', 'patches');
-const BEATMAP_CACHE_DIR = process.env.MINERADIO_BEAT_CACHE_DIR || 'D:\\MineradioCache\\beatmaps';
+const BEATMAP_CACHE_DIR = process.env.MINERADIO_BEAT_CACHE_DIR || path.join(
+  process.env.MINERADIO_USER_DATA_DIR
+    || (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Mineradio') : path.join(__dirname, '.mineradio-data')),
+  'cache',
+  'beatmaps',
+);
 const APP_PACKAGE = readPackageInfo();
-const APP_VERSION = process.env.MINERADIO_VERSION || APP_PACKAGE.version || '0.9.11';
+const APP_VERSION = isPackagedRuntime()
+  ? (APP_PACKAGE.version || '0.9.11')
+  : (process.env.MINERADIO_VERSION || APP_PACKAGE.version || '0.9.11');
 const UPDATE_CONFIG = readUpdateConfig(APP_PACKAGE);
-const PATCH_MAX_BYTES = 12 * 1024 * 1024;
+const mediaProxy = createMediaProxy();
+const PODCAST_ANALYSIS_MAX_BYTES = 512 * 1024 * 1024;
+async function fetchPodcastAnalysisMedia(targetUrl, init) {
+  const response = await mediaProxy.fetch(targetUrl, {
+    ...(init || {}),
+    maxBytes: PODCAST_ANALYSIS_MAX_BYTES,
+    totalTimeoutMs: 15 * 60 * 1000,
+  });
+  if (response.ok) {
+    try {
+      validatedContentType('audio', response.url, response.headers.get('content-type'));
+    } catch (error) {
+      if (response.body) {
+        try { await response.body.cancel(); } catch (_) {}
+      }
+      throw error;
+    }
+  }
+  return response;
+}
+const configuredQishuiMaxSourceBytes = Number(process.env.MINERADIO_QISHUI_AUDIO_MAX_BYTES);
+const qishuiMaxSourceBytes = Number.isFinite(configuredQishuiMaxSourceBytes) &&
+  configuredQishuiMaxSourceBytes > 0
+  ? Math.min(Math.floor(configuredQishuiMaxSourceBytes), 512 * 1024 * 1024)
+  : 160 * 1024 * 1024;
+const qishuiAudioProxy = createQishuiAudioProxy({
+  fetch: async (targetUrl, init) => {
+    const response = await mediaProxy.fetch(targetUrl, init);
+    const declaredBytes = Number(response.headers.get('content-length')) || 0;
+    if ((!response.ok || declaredBytes > qishuiMaxSourceBytes) && response.body) {
+      try { await response.body.cancel(); } catch (_) {}
+    }
+    return response;
+  },
+  maxSourceBytes: qishuiMaxSourceBytes,
+  maxCacheBytes: Number(process.env.MINERADIO_QISHUI_AUDIO_CACHE_BYTES) || 256 * 1024 * 1024,
+  maxCacheEntries: 4,
+  maxConcurrent: 2,
+  maxQueued: 6,
+});
 const UPDATE_MAX_BYTES = 1024 * 1024 * 1024;
 const UPDATE_METADATA_MAX_BYTES = 1024 * 1024;
 const UPDATE_READ_IDLE_TIMEOUT_MS = 20000;
@@ -123,8 +237,9 @@ const UPDATE_LOW_SPEED_REQUIRED_GAIN = 1.35;
 const UPDATE_LOW_SPEED_GRACE_MS = 6000;
 const UPDATE_LOW_SPEED_DURATION_MS = 10000;
 const UPDATE_SPEED_WINDOW_MS = 5000;
-const PATCH_ALLOWED_ROOTS = new Set(['public', 'desktop', 'build']);
-const PATCH_ALLOWED_FILES = new Set(['server.js', 'dj-analyzer.js', 'package.json', 'package-lock.json']);
+const UPDATE_BLOCKMAP_MAX_BYTES = 8 * 1024 * 1024;
+const UPDATE_DIFF_GAP_BYTES = 256 * 1024;
+const UPDATE_DIFF_MAX_FETCH_RATIO = 0.8;
 const UPDATE_FALLBACK_NOTES = [
   '电影镜头节奏更松',
   '音源失败自动换源',
@@ -132,7 +247,7 @@ const UPDATE_FALLBACK_NOTES = [
 ];
 const OPEN_METEO_FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const OPEN_METEO_GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
-const WEATHER_IP_LOCATION_URL = 'http://ip-api.com/json/';
+const WEATHER_IP_LOCATION_URL = 'https://ipwho.is/';
 const WEATHER_DEFAULT_LOCATION = {
   name: '上海',
   country: 'China',
@@ -275,8 +390,16 @@ function readProtectedSecret(filePath) {
       const encrypted = Buffer.from(payload.slice(PROTECTED_SECRET_PREFIX.length), 'base64');
       return electronSafeStorage.decryptString(encrypted).trim();
     }
-    if (safeStorageAvailable()) writeProtectedSecret(filePath, payload);
-    return payload;
+    if (safeStorageAvailable()) {
+      if (writeProtectedSecret(filePath, payload)) return payload;
+      quarantineUnreadableSecret(filePath);
+      return '';
+    }
+    if (process.env.MINERADIO_ALLOW_PLAINTEXT_COOKIE === '1' ||
+        process.env.MINERADIO_ALLOW_PLAINTEXT_CREDENTIALS === '1') return payload;
+    quarantineUnreadableSecret(filePath);
+    console.warn('[Credentials] unprotected stored login was isolated');
+    return '';
   } catch (e) {
     quarantineUnreadableSecret(filePath);
     console.warn('[Credentials] stored login could not be decrypted and was isolated');
@@ -287,16 +410,21 @@ let userCookie = '';
 try { userCookie = readProtectedSecret(COOKIE_FILE); }
 catch (e) { userCookie = ''; }
 function saveCookie(c) {
-  userCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
-  writeProtectedSecret(COOKIE_FILE, userCookie);
+  const nextCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
+  if (!writeProtectedSecret(COOKIE_FILE, nextCookie)) return false;
+  userCookie = nextCookie;
+  return true;
 }
 
 let qqCookie = '';
 try { qqCookie = readProtectedSecret(QQ_COOKIE_FILE); }
 catch (e) { qqCookie = ''; }
 function saveQQCookie(c) {
-  qqCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
-  writeProtectedSecret(QQ_COOKIE_FILE, qqCookie);
+  const nextCookie = normalizeCookieHeader(c) || rawCookieFallback(c);
+  if (!writeProtectedSecret(QQ_COOKIE_FILE, nextCookie)) return false;
+  qqCookie = nextCookie;
+  qqVipInfoCache.clear();
+  return true;
 }
 
 // ---------- 工具 ----------
@@ -318,6 +446,7 @@ function sendJSON(res, data, status) {
   res.end(JSON.stringify(data));
 }
 const API_POST_ONLY_ROUTES = new Set([
+  ...PROVIDER_POST_ONLY_ROUTES,
   '/api/update/download',
   '/api/update/download/switch',
   '/api/update/download/cancel',
@@ -338,8 +467,13 @@ const API_POST_ONLY_ROUTES = new Set([
   '/api/playlist/subscribe',
   '/api/playlist/delete',
   '/api/playlist/reorder-tracks',
+  '/api/shared-playlist/resolve',
 ]);
-const API_MUTATING_POST_ROUTES = new Set([...API_POST_ONLY_ROUTES, '/api/beatmap/cache']);
+const API_MUTATING_POST_ROUTES = new Set([
+  ...API_POST_ONLY_ROUTES,
+  ...PROVIDER_MUTATING_POST_ROUTES,
+  '/api/beatmap/cache',
+]);
 
 function parseLoopbackAuthority(value) {
   const raw = String(value || '').trim();
@@ -416,17 +550,30 @@ function parseGitHubRepository(input) {
   if (github) return { owner: github[1], repo: github[2].replace(/\.git$/i, '') };
   return null;
 }
+function isPackagedRuntime() {
+  return process.env.MINERADIO_APP_PACKAGED === '1' || process.env.NODE_ENV === 'production';
+}
+function readUpdateManifestOverride() {
+  if (isPackagedRuntime()) return '';
+  return process.env.MINERADIO_UPDATE_MANIFEST
+    || process.env.MINERADIO_UPDATE_MANIFEST_URL
+    || process.env.MINERADIO_UPDATE_MANIFEST_FILE
+    || '';
+}
 function readUpdateConfig(pkg) {
   const local = (pkg && pkg.mineradio && pkg.mineradio.update) || {};
-  const repoHint = process.env.MINERADIO_UPDATE_REPOSITORY
+  const allowOverrides = !isPackagedRuntime();
+  const repoHint = (allowOverrides && (
+    process.env.MINERADIO_UPDATE_REPOSITORY
     || process.env.GITHUB_REPOSITORY
+  ))
     || local.repository
     || local.github
     || (pkg && pkg.repository && (pkg.repository.url || pkg.repository))
     || '';
   const parsed = parseGitHubRepository(repoHint) || {};
-  const owner = process.env.MINERADIO_UPDATE_OWNER || local.owner || parsed.owner || '';
-  const repo = process.env.MINERADIO_UPDATE_REPO || local.repo || parsed.repo || '';
+  const owner = (allowOverrides && process.env.MINERADIO_UPDATE_OWNER) || local.owner || parsed.owner || '';
+  const repo = (allowOverrides && process.env.MINERADIO_UPDATE_REPO) || local.repo || parsed.repo || '';
   return {
     provider: local.provider || 'github',
     owner,
@@ -434,19 +581,18 @@ function readUpdateConfig(pkg) {
     configured: !!(owner && repo),
     preview: local.preview !== false,
     preferMirrors: local.preferMirrors !== false,
-    mirrors: readUpdateMirrors(local),
-    manifest: process.env.MINERADIO_UPDATE_MANIFEST
-      || process.env.MINERADIO_UPDATE_MANIFEST_URL
-      || process.env.MINERADIO_UPDATE_MANIFEST_FILE
-      || '',
+    mirrors: readUpdateMirrors(local, allowOverrides),
+    manifest: readUpdateManifestOverride(),
   };
 }
 function parseUpdateMirrorList(value) {
   if (Array.isArray(value)) return value;
   return String(value || '').split(/[\n,;]/);
 }
-function readUpdateMirrors(local) {
-  const envMirrors = process.env.MINERADIO_UPDATE_MIRRORS || process.env.MINERADIO_UPDATE_MIRROR || '';
+function readUpdateMirrors(local, allowOverrides) {
+  const envMirrors = allowOverrides
+    ? (process.env.MINERADIO_UPDATE_MIRRORS || process.env.MINERADIO_UPDATE_MIRROR || '')
+    : '';
   const raw = envMirrors
     ? parseUpdateMirrorList(envMirrors)
     : parseUpdateMirrorList(local.mirrors || local.downloadMirrors || []);
@@ -575,10 +721,12 @@ function cleanReleaseLine(line) {
 function extractReleaseNotes(body) {
   const notes = [];
   String(body || '').split(/\r?\n/).forEach(line => {
+    if (/<!--[\s\S]*?-->/i.test(line)) return;
     const text = cleanReleaseLine(line);
     if (!text) return;
     if (/^(what'?s changed|changes|changelog|full changelog|更新日志)$/i.test(text)) return;
-    if (/^https?:\/\//i.test(text)) return;
+    if (/https?:\/\//i.test(text)) return;
+    if (/^(下载|网盘|夸克盘|百度(?:云|网盘)|蓝奏(?:云|网盘)|安装包)/i.test(text)) return;
     if (text.length > 72) return;
     notes.push(text);
   });
@@ -730,15 +878,15 @@ function beatCacheRootInfo() {
   const dir = path.resolve(BEATMAP_CACHE_DIR);
   const root = path.parse(dir).root;
   const drive = root ? root.replace(/[\\\/]+$/, '').toUpperCase() : '';
-  const allowed = !!root && !/^C:$/i.test(drive);
+  const allowed = !!root && path.isAbsolute(dir) && path.resolve(dir) !== path.resolve(root);
   const available = allowed && fs.existsSync(root);
   return { dir, root, drive, allowed, available };
 }
 function ensureBeatMapCacheDir() {
   const info = beatCacheRootInfo();
   if (!info.allowed) {
-    const err = new Error('BEAT_CACHE_ON_C_DRIVE_DISABLED');
-    err.code = 'BEAT_CACHE_ON_C_DRIVE_DISABLED';
+    const err = new Error('BEAT_CACHE_PATH_INVALID');
+    err.code = 'BEAT_CACHE_PATH_INVALID';
     err.info = info;
     throw err;
   }
@@ -790,6 +938,28 @@ function writeBeatMapCache(body) {
   fs.writeFileSync(tmp, JSON.stringify(payload));
   fs.renameSync(tmp, file);
   return { ok: true, key: payload.key, savedAt: payload.savedAt, dir: path.dirname(file) };
+}
+function clearBeatMapCache() {
+  const info = beatCacheRootInfo();
+  if (!info.allowed) {
+    const err = new Error('BEAT_CACHE_PATH_INVALID');
+    err.code = 'BEAT_CACHE_PATH_INVALID';
+    err.info = info;
+    throw err;
+  }
+  if (!fs.existsSync(info.dir)) return { ok: true, files: 0, bytes: 0 };
+  let files = 0;
+  let bytes = 0;
+  fs.readdirSync(info.dir, { withFileTypes: true }).forEach((entry) => {
+    if (!entry.isFile() || !/\.(?:json|tmp)$/i.test(entry.name)) return;
+    const file = path.join(info.dir, entry.name);
+    try {
+      bytes += fs.statSync(file).size || 0;
+      fs.unlinkSync(file);
+      files += 1;
+    } catch (_) {}
+  });
+  return { ok: true, files, bytes };
 }
 function localUpdateFallback(reason, opts) {
   opts = opts || {};
@@ -1022,6 +1192,19 @@ async function fetchLatestYmlUpdateInfo(reason, release) {
   return parseLatestYmlUpdateInfo(result.text, reason);
 }
 async function fetchLatestUpdateInfo() {
+  if (RUNTIME_PLATFORM !== 'win32') {
+    return {
+      ...localUpdateFallback('', { configured: UPDATE_CONFIG.configured }),
+      platform: RUNTIME_PLATFORM,
+      platformSupported: false,
+      checkStatus: 'unsupported',
+      reason: 'UPDATE_PLATFORM_UNSUPPORTED',
+      release: {
+        ...localUpdateFallback().release,
+        summary: '当前平台暂不支持应用内安装更新。',
+      },
+    };
+  }
   if (UPDATE_CONFIG.manifest) return fetchManifestUpdateInfo(UPDATE_CONFIG.manifest);
   if (!UPDATE_CONFIG.configured || UPDATE_CONFIG.provider !== 'github') return localUpdateFallback();
   const apiUrl = `https://api.github.com/repos/${encodeURIComponent(UPDATE_CONFIG.owner)}/${encodeURIComponent(UPDATE_CONFIG.repo)}/releases/latest`;
@@ -1095,6 +1278,7 @@ function safeUpdateFileName(name, version) {
 }
 function publicUpdateJob(job) {
   if (!job) return { ok: false, error: 'UPDATE_JOB_NOT_FOUND' };
+  const ready = job.status === 'ready';
   return {
     ok: job.status !== 'error',
     id: job.id,
@@ -1117,7 +1301,10 @@ function publicUpdateJob(job) {
     restartRequired: !!job.restartRequired,
     cached: !!job.cached,
     fileName: job.fileName || '',
-    filePath: job.status === 'ready' ? job.filePath : '',
+    filePath: ready ? job.filePath : '',
+    expectedSize: ready ? (job.expectedSize || job.total || 0) : 0,
+    sha256: ready ? (job.sha256 || '') : '',
+    sha512: ready ? (job.sha512 || '') : '',
     version: job.version || '',
     releaseUrl: job.releaseUrl || '',
     error: job.error || '',
@@ -1512,8 +1699,323 @@ async function rankUpdateDownloadCandidates(job, candidates) {
   }));
   return orderUpdateCandidatesByProbe(list, results);
 }
+
+// ====================================================================
+//  差量更新 (blockmap differential)
+//  - 复用本地缓存的旧安装包, 只用 HTTP Range 下载新旧版本之间变化的块
+//  - 复制块逐块校验, 拼装结果仍走 verifyUpdateFile 的整体摘要终检
+//  - 任何一步失败自动回退整包下载; MINERADIO_UPDATE_DIFFERENTIAL=0 可整体停用
+// ====================================================================
+function updateInstallerVersionFromName(name) {
+  const match = /^Mineradio-(\d+(?:\.\d+){1,3})-Setup\.exe$/i.exec(String(name || ''));
+  return match ? match[1] : '';
+}
+
+function findDifferentialBaseInstaller(targetVersion) {
+  try {
+    if (!fs.existsSync(UPDATE_DOWNLOAD_DIR)) return null;
+    const target = normalizeVersion(targetVersion);
+    const bases = [];
+    for (const name of fs.readdirSync(UPDATE_DOWNLOAD_DIR)) {
+      const version = updateInstallerVersionFromName(name);
+      if (!version || normalizeVersion(version) === target) continue;
+      const filePath = path.join(UPDATE_DOWNLOAD_DIR, name);
+      let stat = null;
+      try { stat = fs.statSync(filePath); } catch (_) { continue; }
+      if (!stat.isFile() || !(stat.size > 0)) continue;
+      bases.push({ name, filePath, version, size: stat.size });
+    }
+    if (!bases.length) return null;
+    bases.sort((a, b) => compareVersions(b.version, a.version));
+    const current = bases.find(base => normalizeVersion(base.version) === normalizeVersion(APP_VERSION));
+    return current || bases[0];
+  } catch (_) {
+    return null;
+  }
+}
+
+function updateBlockMapCandidates(job, version, fileName) {
+  const sources = [];
+  const direct = String(job && job.downloadUrl || '');
+  if (UPDATE_CONFIG.manifest) {
+    if (/^https?:\/\//i.test(direct)) sources.push(direct + '.blockmap');
+  } else {
+    sources.push(githubReleaseDownloadUrl(version, fileName + '.blockmap'));
+    if (/^https?:\/\//i.test(direct) && !/api\.github\.com/i.test(direct)) sources.push(direct + '.blockmap');
+  }
+  return uniqueDownloadCandidates(sources);
+}
+
+async function fetchUpdateBlockMapBuffer(candidates) {
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      const resp = await fetchWithTimeout(candidate.url, {
+        headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
+      }, 8000);
+      if (!resp.ok) throw updateError('HTTP_' + resp.status, 'HTTP ' + resp.status);
+      let bodyTimer = null;
+      const buf = Buffer.from(await Promise.race([
+        resp.arrayBuffer(),
+        new Promise((_, reject) => {
+          bodyTimer = setTimeout(() => reject(updateError('UPDATE_BLOCKMAP_TIMEOUT', 'blockmap body timed out')), 10000);
+        }),
+      ]).finally(() => { if (bodyTimer) clearTimeout(bodyTimer); }));
+      if (!buf.length || buf.length > UPDATE_BLOCKMAP_MAX_BYTES) {
+        throw updateError('UPDATE_BLOCKMAP_SIZE_INVALID', 'blockmap size invalid');
+      }
+      return buf;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || updateError('UPDATE_BLOCKMAP_UNAVAILABLE', 'blockmap unavailable');
+}
+
+function readLocalBlockMapSidecar(filePath) {
+  try {
+    const sidecar = filePath + '.blockmap';
+    if (fs.existsSync(sidecar)) return fs.readFileSync(sidecar);
+  } catch (_) {}
+  return null;
+}
+
+function saveBlockMapSidecar(filePath, buffer) {
+  try { fs.writeFileSync(filePath + '.blockmap', buffer); } catch (_) {}
+}
+
+function pruneCachedUpdateInstallers(keepFileName) {
+  try {
+    if (!fs.existsSync(UPDATE_DOWNLOAD_DIR)) return;
+    const keep = String(keepFileName || '').toLowerCase();
+    for (const name of fs.readdirSync(UPDATE_DOWNLOAD_DIR)) {
+      if (!/^Mineradio-\d+(?:\.\d+){1,3}-Setup\.exe(\.blockmap)?$/i.test(name)) continue;
+      const lower = name.toLowerCase();
+      if (lower === keep || lower === keep + '.blockmap') continue;
+      try { fs.unlinkSync(path.join(UPDATE_DOWNLOAD_DIR, name)); } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+async function persistUpdateBlockMapSidecarAsync(job) {
+  try {
+    if (!readLocalBlockMapSidecar(job.filePath)) {
+      const buf = await fetchUpdateBlockMapBuffer(updateBlockMapCandidates(job, job.version, job.fileName));
+      saveBlockMapSidecar(job.filePath, buf);
+    }
+  } catch (err) {
+    console.warn('[UpdateDiff] blockmap sidecar fetch skipped:', err && err.message || err);
+  }
+  try { pruneCachedUpdateInstallers(job.fileName); } catch (_) {}
+}
+
+async function streamUpdateRangeToWriter(job, candidates, preferred, op, writer, plan) {
+  const ordered = preferred ? [preferred].concat(candidates.filter(candidate => candidate !== preferred)) : candidates.slice();
+  let written = 0;
+  let lastError = null;
+  for (const candidate of ordered) {
+    throwIfUpdateDownloadCancelled(job);
+    const controller = new AbortController();
+    job.activeAbortController = controller;
+    const connectTimer = setTimeout(() => {
+      controller.abort(updateError('UPDATE_CONNECT_TIMEOUT', 'Range request timed out'));
+    }, UPDATE_CONNECT_TIMEOUT_MS);
+    try {
+      const start = op.offset + written;
+      const end = op.offset + op.size - 1;
+      const resp = await fetch(candidate.url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': `Mineradio/${APP_VERSION}`,
+          Range: `bytes=${start}-${end}`,
+        },
+      });
+      clearTimeout(connectTimer);
+      if (resp.status !== 206) throw updateError('UPDATE_RANGE_UNSUPPORTED', 'HTTP ' + resp.status + ' (need 206 partial content)');
+      const contentRange = String(resp.headers.get('content-range') || '').toLowerCase();
+      if (!contentRange.startsWith('bytes ' + start + '-')) {
+        throw updateError('UPDATE_RANGE_MISMATCH', 'content-range ' + contentRange);
+      }
+      if (!resp.body || typeof resp.body.getReader !== 'function') {
+        throw updateError('UPDATE_BODY_MISSING', 'Range response has no body');
+      }
+      const reader = resp.body.getReader();
+      try {
+        while (written < op.size) {
+          throwIfUpdateDownloadCancelled(job);
+          if (job.switchRequested) throw updateError('UPDATE_SOURCE_SWITCH_REQUESTED', 'Manual source switch requested');
+          const chunk = await readUpdateChunk(reader);
+          if (chunk.done) break;
+          let buf = Buffer.from(chunk.value);
+          if (written + buf.length > op.size) buf = buf.subarray(0, op.size - written);
+          if (!buf.length) continue;
+          written += buf.length;
+          job.received += buf.length;
+          if (job.received > plan.fetchBytes + 4 * 1024 * 1024) {
+            throw updateError('UPDATE_DIFF_OVERFLOW', 'Range data exceeded the differential plan');
+          }
+          job.progress = Math.max(1, Math.min(99, Math.round((job.received / Math.max(1, plan.fetchBytes)) * 100)));
+          job.updatedAt = Date.now();
+          if (!writer.write(buf)) await once(writer, 'drain');
+        }
+      } finally {
+        try { await reader.cancel('range segment finished'); } catch (_) {}
+      }
+      if (written !== op.size) throw updateError('UPDATE_RANGE_TRUNCATED', `expected ${op.size} bytes, got ${written}`);
+      return candidate;
+    } catch (err) {
+      clearTimeout(connectTimer);
+      if (isUpdateDownloadCancelled(job)) throw err;
+      if (err && err.code === 'UPDATE_SOURCE_SWITCH_REQUESTED') throw err;
+      lastError = err;
+    } finally {
+      if (job.activeAbortController === controller) job.activeAbortController = null;
+    }
+  }
+  throw lastError || updateError('UPDATE_RANGE_FAILED', 'No download source served the byte range');
+}
+
+async function attemptDifferentialUpdateDownload(job) {
+  if (process.env.MINERADIO_UPDATE_DIFFERENTIAL === '0') return false;
+  const base = findDifferentialBaseInstaller(job.version);
+  if (!base) return false;
+
+  const resetForFullDownload = () => {
+    job.mode = 'installer';
+    job.routing = 'queued';
+    job.sourceLabel = '';
+    job.total = job.expectedSize || 0;
+    job.received = 0;
+    job.progress = 0;
+    job.updatedAt = Date.now();
+  };
+
+  job.status = 'downloading';
+  job.routing = 'differential';
+  job.sourceLabel = '差量更新';
+  job.message = '正在比对新旧安装包块清单';
+  job.updatedAt = Date.now();
+
+  const newMapBuffer = await fetchUpdateBlockMapBuffer(updateBlockMapCandidates(job, job.version, job.fileName));
+  throwIfUpdateDownloadCancelled(job);
+  let oldMapBuffer = readLocalBlockMapSidecar(base.filePath);
+  if (!oldMapBuffer) {
+    oldMapBuffer = await fetchUpdateBlockMapBuffer(updateBlockMapCandidates(job, base.version, base.name));
+    saveBlockMapSidecar(base.filePath, oldMapBuffer);
+  }
+  throwIfUpdateDownloadCancelled(job);
+
+  const oldMap = parseBlockMapBuffer(oldMapBuffer);
+  const newMap = parseBlockMapBuffer(newMapBuffer);
+  if (job.expectedSize > 0 && newMap.totalSize !== job.expectedSize) {
+    throw updateError('UPDATE_BLOCKMAP_SIZE_MISMATCH', `blockmap total ${newMap.totalSize} != asset size ${job.expectedSize}`);
+  }
+  if (base.size !== oldMap.totalSize) {
+    throw updateError('UPDATE_DIFF_BASE_MISMATCH', 'Cached installer size does not match its blockmap');
+  }
+  const plan = planDifferentialAssembly(oldMap, newMap, {
+    gapBytes: UPDATE_DIFF_GAP_BYTES,
+    maxFetchRatio: UPDATE_DIFF_MAX_FETCH_RATIO,
+  });
+  if (!plan) {
+    console.log('[UpdateDiff] differential not worthwhile, using full download');
+    resetForFullDownload();
+    return false;
+  }
+  console.log('[UpdateDiff]', base.name, '->', job.fileName, describeDifferentialPlan(plan));
+
+  const candidates = Array.isArray(job.downloadCandidates) && job.downloadCandidates.length
+    ? job.downloadCandidates
+    : uniqueDownloadCandidates(job.downloadUrl || '');
+
+  job.mode = 'differential';
+  job.total = plan.fetchBytes;
+  job.received = 0;
+  job.progress = 1;
+  job.etaSeconds = 0;
+  job.message = '正在差量更新（只下载变化部分）';
+  job.updatedAt = Date.now();
+
+  const tmpPath = job.filePath + '.download';
+  try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+  fs.mkdirSync(UPDATE_DOWNLOAD_DIR, { recursive: true });
+  const oldFile = await fs.promises.open(base.filePath, 'r');
+  const writer = fs.createWriteStream(tmpPath);
+  let rangeSource = null;
+  try {
+    for (const op of plan.ops) {
+      throwIfUpdateDownloadCancelled(job);
+      if (job.switchRequested) throw updateError('UPDATE_SOURCE_SWITCH_REQUESTED', 'Manual source switch requested');
+      if (op.type === 'copy') {
+        const buf = Buffer.allocUnsafe(op.size);
+        let done = 0;
+        while (done < op.size) {
+          const { bytesRead } = await oldFile.read(buf, done, op.size - done, op.oldOffset + done);
+          if (bytesRead <= 0) throw updateError('UPDATE_DIFF_BASE_READ_FAILED', 'Cached installer is truncated');
+          done += bytesRead;
+        }
+        if (!verifyCopiedBlock(buf, op.checksum)) {
+          throw updateError('UPDATE_DIFF_BASE_CORRUPT', 'Cached installer block checksum mismatch');
+        }
+        if (!writer.write(buf)) await once(writer, 'drain');
+      } else {
+        rangeSource = await streamUpdateRangeToWriter(job, candidates, rangeSource, op, writer, plan);
+        job.sourceLabel = '差量更新 · ' + (rangeSource.label || '下载线路');
+      }
+    }
+  } finally {
+    try { await oldFile.close(); } catch (_) {}
+    writer.end();
+    await once(writer, 'finish').catch(() => {});
+  }
+  throwIfUpdateDownloadCancelled(job);
+  job.routing = 'verifying';
+  job.message = '正在校验安装包';
+  job.updatedAt = Date.now();
+  verifyUpdateFile(tmpPath, job);
+  throwIfUpdateDownloadCancelled(job);
+  if (fs.existsSync(job.filePath)) fs.unlinkSync(job.filePath);
+  fs.renameSync(tmpPath, job.filePath);
+  saveBlockMapSidecar(job.filePath, newMapBuffer);
+  pruneCachedUpdateInstallers(job.fileName);
+  const fetchedMb = Math.max(1, Math.round(plan.fetchBytes / (1024 * 1024)));
+  const totalMb = Math.max(1, Math.round(plan.totalBytes / (1024 * 1024)));
+  job.status = 'ready';
+  job.routing = 'ready';
+  job.progress = 100;
+  job.etaSeconds = 0;
+  job.message = `差量更新完成：只下载了 ${fetchedMb} MB（完整包 ${totalMb} MB）`;
+  job.updatedAt = Date.now();
+  return true;
+}
+
 async function downloadUpdateAssetWithMirrors(job) {
   const tmpPath = job.filePath + '.download';
+  try {
+    if (await attemptDifferentialUpdateDownload(job)) return;
+  } catch (diffError) {
+    if (isUpdateDownloadCancelled(job)) {
+      cleanupUpdateDownloadPartial(job);
+      return;
+    }
+    job.switchRequested = false;
+    const info = classifyUpdateError(diffError);
+    job.failedAttempts = (job.failedAttempts || []).concat({
+      source: '差量更新',
+      reason: info.reason,
+      detail: info.detail,
+    }).slice(-6);
+    console.warn('[UpdateDiff] falling back to full download:', diffError && diffError.message || diffError);
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+    job.mode = 'installer';
+    job.routing = 'queued';
+    job.sourceLabel = '';
+    job.total = job.expectedSize || 0;
+    job.received = 0;
+    job.progress = 0;
+    job.message = '差量更新不可用，转为完整下载';
+    job.updatedAt = Date.now();
+  }
   const initialCandidates = Array.isArray(job.downloadCandidates) && job.downloadCandidates.length
     ? job.downloadCandidates
     : uniqueDownloadCandidates(job.downloadUrl || '');
@@ -1652,6 +2154,7 @@ async function downloadUpdateAssetWithMirrors(job) {
       job.etaSeconds = 0;
       job.message = '安装包已下载';
       job.updatedAt = Date.now();
+      persistUpdateBlockMapSidecarAsync(job).catch(() => {});
       return;
     } catch (attemptError) {
       if (isUpdateDownloadCancelled(job)) {
@@ -1746,245 +2249,6 @@ function startUpdateDownloadJob(info) {
 }
 function sha256Hex(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
-}
-function safePatchRelativePath(value) {
-  const rel = String(value || '').replace(/\\/g, '/').replace(/^\/+/, '').trim();
-  if (!rel || rel.includes('\0')) return '';
-  const parts = rel.split('/').filter(Boolean);
-  if (!parts.length || parts.some(part => part === '..' || part === '.')) return '';
-  const root = parts[0];
-  if (PATCH_ALLOWED_FILES.has(rel)) return rel;
-  if (!PATCH_ALLOWED_ROOTS.has(root)) return '';
-  if (/\.(exe|dll|node|msi|bat|cmd|ps1|pfx|pem|key)$/i.test(rel)) return '';
-  return parts.join('/');
-}
-function patchTargetPath(rel) {
-  const safeRel = safePatchRelativePath(rel);
-  if (!safeRel) return null;
-  const target = path.resolve(__dirname, safeRel);
-  const root = path.resolve(__dirname);
-  if (target !== root && !target.startsWith(root + path.sep)) return null;
-  return target;
-}
-function decodePatchFile(file) {
-  if (!file || typeof file !== 'object') return null;
-  if (typeof file.contentBase64 === 'string') return Buffer.from(file.contentBase64, 'base64');
-  if (typeof file.content === 'string') return Buffer.from(file.content, file.encoding === 'base64' ? 'base64' : 'utf8');
-  return null;
-}
-function backupPatchTarget(job, rel, target) {
-  if (!fs.existsSync(target)) return;
-  const backup = path.join(UPDATE_PATCH_BACKUP_DIR, job.id, rel);
-  fs.mkdirSync(path.dirname(backup), { recursive: true });
-  fs.copyFileSync(target, backup);
-}
-function writePatchFile(job, file) {
-  const rel = safePatchRelativePath(file.path || file.name);
-  const target = rel ? patchTargetPath(rel) : null;
-  const content = decodePatchFile(file);
-  if (!rel || !target || !content) throw new Error('INVALID_PATCH_FILE');
-  if (content.length > PATCH_MAX_BYTES) throw new Error('PATCH_FILE_TOO_LARGE');
-  const expected = String(file.sha256 || '').trim().toLowerCase();
-  const actual = sha256Hex(content);
-  if (expected && expected !== actual) throw new Error('PATCH_HASH_MISMATCH:' + rel);
-  backupPatchTarget(job, rel, target);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = target + '.mineradio-patch';
-  fs.writeFileSync(tmp, content);
-  fs.renameSync(tmp, target);
-  if (expected && sha256Hex(fs.readFileSync(target)) !== expected) throw new Error('PATCH_WRITE_VERIFY_FAILED:' + rel);
-  return rel;
-}
-function normalizePatchPayload(payload) {
-  if (!payload || typeof payload !== 'object') throw new Error('INVALID_PATCH_PAYLOAD');
-  const type = String(payload.type || payload.kind || '');
-  if (type && type !== 'mineradio-resource-patch') throw new Error('UNSUPPORTED_PATCH_TYPE');
-  const from = normalizeVersion(payload.from || payload.baseVersion || '');
-  const to = normalizeVersion(payload.to || payload.version || payload.targetVersion || '');
-  const files = Array.isArray(payload.files) ? payload.files : [];
-  if (!from || compareVersions(from, APP_VERSION) !== 0) throw new Error('PATCH_VERSION_MISMATCH');
-  if (!to || compareVersions(to, APP_VERSION) <= 0) throw new Error('PATCH_TARGET_VERSION_INVALID');
-  if (!files.length) throw new Error('PATCH_EMPTY');
-  if (files.length > 40) throw new Error('PATCH_TOO_MANY_FILES');
-  return { from, to, files, restartRequired: payload.restartRequired !== false };
-}
-async function downloadAndApplyPatch(job) {
-  const chunks = [];
-  try {
-    fs.mkdirSync(UPDATE_DOWNLOAD_DIR, { recursive: true });
-    job.status = 'downloading';
-    job.mode = 'patch';
-    job.message = '正在下载快速补丁';
-    job.updatedAt = Date.now();
-
-    const resp = await fetch(job.downloadUrl, {
-      headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
-    });
-    if (!resp.ok) throw new Error('Patch download failed ' + resp.status);
-
-    job.total = parseInt(resp.headers.get('content-length') || '0', 10) || job.total || 0;
-    job.received = 0;
-    const reader = resp.body.getReader();
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      const buf = Buffer.from(chunk.value);
-      job.received += buf.length;
-      if (job.received > PATCH_MAX_BYTES) throw new Error('PATCH_TOO_LARGE');
-      chunks.push(buf);
-      job.progress = job.total > 0
-        ? Math.max(1, Math.min(84, Math.round((job.received / job.total) * 84)))
-        : Math.max(1, Math.min(76, Math.round(Math.log10(job.received / 1024 + 1) * 24)));
-      job.updatedAt = Date.now();
-    }
-
-    const raw = Buffer.concat(chunks);
-    const expectedPatchHash = String(job.sha256 || '').trim().toLowerCase();
-    if (expectedPatchHash && sha256Hex(raw) !== expectedPatchHash) throw new Error('PATCH_PACKAGE_HASH_MISMATCH');
-    const patch = normalizePatchPayload(JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, '')));
-    job.version = patch.to;
-    job.message = '正在应用快速补丁';
-    job.progress = 88;
-    job.updatedAt = Date.now();
-    const changed = [];
-    patch.files.forEach(file => changed.push(writePatchFile(job, file)));
-    job.changedFiles = changed;
-    job.status = 'ready';
-    job.progress = 100;
-    job.restartRequired = patch.restartRequired;
-    job.message = patch.restartRequired ? '快速补丁已应用，重启后生效' : '快速补丁已应用';
-    job.updatedAt = Date.now();
-  } catch (e) {
-    job.status = 'error';
-    job.error = e.message || 'PATCH_APPLY_FAILED';
-    job.message = '快速补丁失败，可改用完整安装包';
-    job.updatedAt = Date.now();
-  }
-}
-async function downloadPatchBufferFromCandidate(job, candidate, index, total) {
-  ensureMirrorCanBeVerified(job, candidate);
-  prepareUpdateJobAttempt(job, candidate, index, total);
-  job.mode = 'patch';
-  job.message = '正在下载快速补丁';
-  job.progress = 0;
-  job.updatedAt = Date.now();
-
-  const resp = await fetchWithTimeout(candidate.url, {
-    headers: { 'User-Agent': `Mineradio/${APP_VERSION}` },
-  }, 12000);
-  if (!resp.ok) throw updateError('HTTP_' + resp.status, 'HTTP ' + resp.status);
-
-  job.total = parseInt(resp.headers.get('content-length') || '0', 10) || job.expectedSize || job.total || 0;
-  job.received = 0;
-  const chunks = [];
-  const reader = resp.body.getReader();
-  let speedWindowAt = Date.now();
-  let speedWindowBytes = 0;
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    const buf = Buffer.from(chunk.value);
-    job.received += buf.length;
-    speedWindowBytes += buf.length;
-    if (job.received > PATCH_MAX_BYTES) throw updateError('PATCH_TOO_LARGE', 'Patch package is too large');
-    chunks.push(buf);
-    const now = Date.now();
-    if (now - speedWindowAt >= 700) {
-      job.speedBps = Math.round(speedWindowBytes / Math.max(0.001, (now - speedWindowAt) / 1000));
-      speedWindowAt = now;
-      speedWindowBytes = 0;
-    }
-    job.progress = job.total > 0
-      ? Math.max(1, Math.min(84, Math.round((job.received / job.total) * 84)))
-      : Math.max(1, Math.min(76, Math.round(Math.log10(job.received / 1024 + 1) * 24)));
-    job.etaSeconds = job.total > 0 && job.speedBps > 0 ? Math.max(0, Math.round((job.total - job.received) / job.speedBps)) : 0;
-    job.updatedAt = Date.now();
-  }
-  const raw = Buffer.concat(chunks);
-  verifyUpdateBuffer(raw, job);
-  return raw;
-}
-async function downloadAndApplyPatchWithMirrors(job) {
-  const candidates = Array.isArray(job.downloadCandidates) && job.downloadCandidates.length
-    ? job.downloadCandidates
-    : uniqueDownloadCandidates(job.downloadUrl || '');
-  const failures = [];
-  fs.mkdirSync(UPDATE_DOWNLOAD_DIR, { recursive: true });
-  for (let i = 0; i < candidates.length; i++) {
-    const candidate = candidates[i];
-    try {
-      const raw = await downloadPatchBufferFromCandidate(job, candidate, i, candidates.length);
-      const patch = normalizePatchPayload(JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, '')));
-      job.version = patch.to;
-      job.message = '正在应用快速补丁';
-      job.progress = 88;
-      job.etaSeconds = 0;
-      job.updatedAt = Date.now();
-      const changed = [];
-      patch.files.forEach(file => changed.push(writePatchFile(job, file)));
-      job.changedFiles = changed;
-      job.status = 'ready';
-      job.progress = 100;
-      job.restartRequired = patch.restartRequired;
-      job.message = patch.restartRequired ? '快速补丁已应用，重启后生效' : '快速补丁已应用';
-      job.updatedAt = Date.now();
-      return;
-    } catch (err) {
-      const info = classifyUpdateError(err);
-      failures.push({ source: candidate.label || '下载线路', reason: info.reason, detail: info.detail });
-      job.failedAttempts = failures.slice(-6);
-      job.message = i < candidates.length - 1 ? ((candidate.label || '当前线路') + '失败，正在切换线路') : info.reason;
-      job.updatedAt = Date.now();
-      if (i >= candidates.length - 1) setUpdateJobError(job, err, '快速补丁失败：' + info.reason);
-    }
-  }
-}
-function startUpdatePatchJob(info) {
-  const release = info && info.release ? info.release : {};
-  const patch = release.patch || {};
-  const downloadUrl = patch.downloadUrl || '';
-  if (!info || !info.configured) return { ok: false, error: 'UPDATE_REPOSITORY_NOT_CONFIGURED' };
-  if (!info.updateAvailable) return { ok: false, error: 'NO_UPDATE_AVAILABLE' };
-  if (!release.patchAvailable || !/^https?:\/\//i.test(downloadUrl)) return { ok: false, error: 'PATCH_ASSET_MISSING' };
-
-  const version = info.latestVersion || release.version || patch.to || '';
-  const existing = Array.from(updateDownloadJobs.values())
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    .find(job => job.mode === 'patch' && job.version === version && (job.status === 'queued' || job.status === 'downloading' || job.status === 'ready'));
-  if (existing) return publicUpdateJob(existing);
-
-  const now = Date.now();
-  const downloadCandidates = uniqueDownloadCandidates([downloadUrl].concat(Array.isArray(patch.downloadUrls) ? patch.downloadUrls : []));
-  const job = {
-    id: 'patch-' + now.toString(36) + '-' + Math.random().toString(36).slice(2, 8),
-    status: 'queued',
-    progress: 0,
-    received: 0,
-    total: patch.size || 0,
-    mode: 'patch',
-    fileName: patch.name || safeUpdateFileName('', version).replace(/\.exe$/i, '.patch.json'),
-    filePath: '',
-    version,
-    downloadUrl,
-    downloadCandidates,
-    releaseUrl: release.htmlUrl || '',
-    expectedSize: patch.size || 0,
-    sha256: normalizeDigest(patch.sha256 || '', 'sha256').toLowerCase(),
-    sha512: normalizeDigest(patch.sha512 || '', 'sha512'),
-    restartRequired: true,
-    sourceLabel: '',
-    attempt: 0,
-    attempts: downloadCandidates.length,
-    failedAttempts: [],
-    message: '等待下载快速补丁',
-    createdAt: now,
-    updatedAt: now,
-    error: '',
-  };
-  updateDownloadJobs.set(job.id, job);
-  trimUpdateJobs();
-  downloadAndApplyPatchWithMirrors(job);
-  return publicUpdateJob(job);
 }
 function readRequestBody(req) {
   return new Promise(resolve => {
@@ -2331,13 +2595,19 @@ function taskStatus(result, label) {
 async function handleSearch(keywords, limit, offset) {
   const pageOffset = Math.max(0, Number(offset || 0) || 0);
   console.log('[Search]', keywords, 'limit:', limit, 'offset:', pageOffset);
-  const result = await cloudsearch({ keywords, limit, offset: pageOffset, cookie: userCookie, timestamp: Date.now() });
-  const resultBody = result.body && result.body.result || {};
+  const requestResult = await callPublicNetease(cookie => cloudsearch({
+    keywords,
+    type: 1,
+    limit,
+    offset: pageOffset,
+    cookie,
+    timestamp: Date.now(),
+  }));
+  const body = throwOnNeteaseApiFailure(requestResult.result, 'SEARCH_FAILED');
+  const resultBody = body && (body.result || body.data) || {};
   const songs = Array.isArray(resultBody.songs) ? resultBody.songs : [];
 
-  let mapped = songs.map(s => {
-    return mapSongRecord(s);
-  });
+  let mapped = mapNeteaseSongs(songs);
 
   // 兜底: 补齐缺失的封面
   const missing = mapped.filter(s => !s.cover).map(s => s.id);
@@ -2355,15 +2625,26 @@ async function handleSearch(keywords, limit, offset) {
     } catch (e) { console.warn('[Search] backfill failed:', e.message); }
   }
 
-  const total = Math.max(0, Number(resultBody.songCount || mapped.length) || 0);
-  const hasMore = pageOffset + mapped.length < total;
+  const cursor = resolvePageCursor(
+    { limit, offset: pageOffset },
+    resultBody.songCount,
+    songs.length,
+    resultBody.hasMore === true || resultBody.more === true,
+  );
   return {
+    type: 'song',
+    requiresLogin: false,
+    loggedIn: requestResult.authExpired ? false : null,
+    authExpired: requestResult.authExpired,
     songs: mapped,
-    total,
+    items: mapped,
+    total: cursor.total,
     offset: pageOffset,
     limit,
-    nextOffset: Math.min(total, pageOffset + (hasMore ? limit : mapped.length)),
-    hasMore,
+    nextOffset: cursor.nextOffset,
+    more: cursor.more,
+    hasMore: cursor.hasMore,
+    empty: mapped.length === 0,
   };
 }
 
@@ -2776,6 +3057,8 @@ const QQ_HEADERS = {
   Referer: 'https://y.qq.com/',
   'User-Agent': UA,
 };
+const QQ_VIP_INFO_CACHE_TTL_MS = 2 * 60 * 1000;
+const qqVipInfoCache = new Map();
 
 function requestText(targetUrl, opts, body) {
   opts = opts || {};
@@ -2800,7 +3083,7 @@ function requestText(targetUrl, opts, body) {
         resolve(text);
       });
     });
-    req.setTimeout(10000, () => req.destroy(new Error('Request timeout')));
+    req.setTimeout(opts.timeoutMs || 10000, () => req.destroy(new Error('Request timeout')));
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
@@ -3029,23 +3312,24 @@ async function fetchOpenMeteoWeather(params) {
 
 async function fetchIpWeatherLocation() {
   const u = new URL(WEATHER_IP_LOCATION_URL);
-  u.searchParams.set('fields', 'status,message,country,regionName,city,lat,lon,timezone,query');
+  u.searchParams.set('fields', 'success,message,country,region,city,latitude,longitude,timezone,ip');
   u.searchParams.set('lang', 'zh-CN');
   const body = await requestJson(u.toString(), { headers: { 'User-Agent': UA } });
-  if (!body || body.status !== 'success' || !Number.isFinite(Number(body.lat)) || !Number.isFinite(Number(body.lon))) {
+  if (!body || body.success === false || !Number.isFinite(Number(body.latitude)) || !Number.isFinite(Number(body.longitude))) {
     const err = new Error(body && body.message || 'IP_LOCATION_FAILED');
     err.body = body;
     throw err;
   }
   return {
-    provider: 'ip-api',
+    provider: 'ipwho.is',
     city: body.city || WEATHER_DEFAULT_LOCATION.name,
-    region: body.regionName || '',
+    region: body.region || '',
     country: body.country || '',
-    latitude: Number(body.lat),
-    longitude: Number(body.lon),
-    timezone: body.timezone || 'auto',
-    ip: body.query || '',
+    latitude: Number(body.latitude),
+    longitude: Number(body.longitude),
+    timezone: (body.timezone && (body.timezone.id || body.timezone.name))
+      || (typeof body.timezone === 'string' ? body.timezone : 'auto'),
+    ip: body.ip || '',
   };
 }
 
@@ -3292,8 +3576,164 @@ async function qqMusicRequest(payload, opts) {
   const text = await requestText(QQ_MUSICU_URL, {
     method: 'POST',
     headers,
+    timeoutMs: opts.timeoutMs,
   }, body);
   return parseJSONText(text);
+}
+
+function normalizeQQVipPayload(payload, fallback) {
+  return normalizeQQVipPayloadStrict(payload, fallback || {});
+}
+
+function withQQVipSyncState(info, probeAvailable) {
+  info = info || {};
+  const authIncomplete = !!(info.loggedIn && !info.playbackKeyReady);
+  const membershipUnknown = !!(info.loggedIn && info.membershipKnown !== true);
+  const membershipStale = !!(info.loggedIn && (
+    authIncomplete ||
+    membershipUnknown ||
+    (info.profileUnavailable && !probeAvailable)
+  ));
+  return {
+    ...info,
+    membershipStale,
+    authorizationIncomplete: authIncomplete,
+    vipSyncState: authIncomplete
+      ? 'authorization_incomplete'
+      : (membershipUnknown ? 'unknown' : (probeAvailable ? 'checked' : (membershipStale ? 'stale' : 'profile'))),
+  };
+}
+
+function mergeQQVipStatus(info, vip, source) {
+  info = info || {};
+  const profilePositive = !!(
+    info.isVip ||
+    info.isSvip ||
+    info.vipLevel === 'vip' ||
+    info.vipLevel === 'svip' ||
+    Number(info.vipType || 0) > 0 ||
+    Number(info.svipType || 0) > 0
+  );
+  const probeKnown = !!(vip && vip.resolved && vip.membershipKnown !== false);
+  if (!probeKnown) {
+    return withQQVipSyncState({
+      ...info,
+      vipCheckedAt: Date.now(),
+      vipProbeAvailable: false,
+      vipSource: info.vipSource || 'profile',
+    }, false);
+  }
+
+  // One replicated endpoint can briefly return an ordinary result after the
+  // official profile already confirmed an active membership.
+  if (profilePositive && !vip.isVip) {
+    return withQQVipSyncState({
+      ...info,
+      membershipKnown: true,
+      vipCheckedAt: Date.now(),
+      vipProbeAvailable: true,
+      vipEvidenceConflict: true,
+      vipSource: info.vipSource || 'qq-profile-vip',
+    }, true);
+  }
+  if (info.loggedIn && info.playbackKeyReady === false && !vip.isVip) {
+    return withQQVipSyncState({
+      ...info,
+      vipCheckedAt: Date.now(),
+      vipProbeAvailable: false,
+      vipSource: source || vip.vipSource || info.vipSource || 'qq-vip-probe-untrusted',
+    }, false);
+  }
+  return withQQVipSyncState({
+    ...info,
+    vipType: vip.vipType || 0,
+    svipType: vip.svipType || 0,
+    vipLevel: vip.vipLevel || 'none',
+    isVip: !!vip.isVip,
+    isSvip: !!vip.isSvip,
+    vipLabel: vip.vipLabel || (vip.isVip ? 'VIP' : '无VIP'),
+    membershipKnown: true,
+    expiresAt: Number(vip.expiresAt) || 0,
+    vipCheckedAt: Date.now(),
+    vipProbeAvailable: true,
+    vipSource: source || vip.vipSource || 'qq-vip-probe',
+  }, true);
+}
+
+async function fetchQQVipStatus(cookieObj, opts) {
+  opts = opts || {};
+  cookieObj = cookieObj || qqCookieObject();
+  const uin = qqCookieUin(cookieObj);
+  const musicKey = qqCookieMusicKey(cookieObj);
+  if (!uin || !musicKey) return null;
+
+  const cacheKey = qqVipSessionCacheKey(uin, musicKey, cookieObj);
+  const cached = cacheKey ? qqVipInfoCache.get(cacheKey) : null;
+  if (!opts.force && cached && Date.now() < cached.expiresAt) return cached.value;
+
+  const comm = { uin, format: 'json', ct: 24, cv: 0 };
+  if (musicKey) comm.authst = musicKey;
+  const probes = [
+    {
+      source: 'qq-vip-query-v2-list',
+      responseKey: 'req_1',
+      uin: String(uin),
+      body: {
+        comm,
+        req_1: {
+          module: 'userInfo.VipQueryServer',
+          method: 'SRFVipQuery_V2',
+          param: { uin_list: [String(uin)] },
+        },
+      },
+    },
+    {
+      source: 'qq-vip-query-v1-list',
+      responseKey: 'req_1',
+      uin: String(uin),
+      body: {
+        comm,
+        req_1: {
+          module: 'userInfo.VipQueryServer',
+          method: 'SRFVipQuery',
+          param: { uin_list: [String(uin)] },
+        },
+      },
+    },
+    {
+      source: 'qq-vip-query-v2-single',
+      responseKey: 'vip',
+      uin: String(uin),
+      body: {
+        comm,
+        vip: {
+          module: 'userInfo.VipQueryServer',
+          method: 'SRFVipQuery_V2',
+          param: { uin: String(uin), uin_list: [String(uin)] },
+        },
+      },
+    },
+  ];
+  const value = await resolveQQVipFromProbes(probes, probe => {
+    return qqMusicRequest(probe.body, { cookie: true, timeoutMs: 4200 });
+  });
+  if (value && value.resolved) {
+    const ttlMs = qqVipCacheTtlMs(value, {
+      positiveTtlMs: QQ_VIP_INFO_CACHE_TTL_MS,
+      negativeTtlMs: 30 * 1000,
+    });
+    if (cacheKey && ttlMs > 0) {
+      qqVipInfoCache.set(cacheKey, {
+        expiresAt: Date.now() + ttlMs,
+        value,
+      });
+    }
+    return value;
+  }
+  if (opts.force && value && value.errorCount) {
+    console.warn('[QQLogin] VIP probe incomplete:', value.errorCount + '/' + probes.length);
+  }
+  return null;
 }
 
 function normalizeQQProfile(body, cookieObj) {
@@ -3302,21 +3742,14 @@ function normalizeQQProfile(body, cookieObj) {
   const data = (body && (body.data || body.profile || body.creator || body.result)) || {};
   const creator = (data.creator || data.user || data.profile || data) || {};
   const vipInfo = data.vipInfo || data.vipinfo || data.vip || creator.vipInfo || creator.vipinfo || {};
-  const profileNick = creator.nick || creator.nickname || creator.name || creator.hostname || creator.title || '';
+  const profileNick = decodeQQCookieValue(creator.nick || creator.nickname || creator.name || creator.hostname || creator.title || '');
   const profileAvatar = creator.headpic || creator.avatar || creator.avatarUrl || creator.logo || '';
   const cookieNick = qqCookieNickname(cookieObj, uin);
   const nick = profileNick || cookieNick || '';
   const avatar = profileAvatar || qqCookieAvatar(cookieObj, uin);
-  let vipType = Number(
-    cookieObj.vipType || cookieObj.vip_type ||
-    data.vipType || data.vip_type || data.viptype || data.music_vip_level || data.green_vip_level || data.luxury_vip_level ||
-    creator.vipType || creator.vip_type || creator.music_vip_level || creator.green_vip_level || creator.luxury_vip_level ||
-    vipInfo.vipType || vipInfo.vip_type || vipInfo.music_vip_level || vipInfo.green_vip_level || vipInfo.luxury_vip_level || 0
-  ) || 0;
-  if (!vipType) {
-    const vipFlag = data.isVip || data.is_vip || data.vipFlag || data.vipflag || creator.isVip || creator.is_vip || vipInfo.isVip || vipInfo.is_vip || vipInfo.vipFlag;
-    if (vipFlag === true || Number(vipFlag) > 0 || String(vipFlag || '').toLowerCase() === 'true') vipType = 1;
-  }
+  // Cookie labels may survive a downgrade. Only current profile fields or an
+  // account-scoped entitlement probe are accepted as membership evidence.
+  const profileVip = normalizeQQVipPayload({ data, creator, vipInfo }, {});
   return {
     provider: 'qq',
     loggedIn: !!(uin && qqCookieMusicKey(cookieObj)),
@@ -3324,19 +3757,76 @@ function normalizeQQProfile(body, cookieObj) {
     userId: uin,
     nickname: nick || (uin ? ('QQ ' + uin) : 'QQ 音乐'),
     avatar,
-    vipType,
+    vipType: profileVip.vipType || 0,
+    svipType: profileVip.svipType || 0,
+    vipLevel: profileVip.vipLevel || 'none',
+    isVip: !!profileVip.isVip,
+    isSvip: !!profileVip.isSvip,
+    vipLabel: profileVip.vipLabel || '无VIP',
+    membershipKnown: !!profileVip.membershipKnown,
+    expiresAt: Number(profileVip.expiresAt) || 0,
     hasCookie: !!qqCookie,
     playbackKeyReady: !!qqCookiePlaybackKey(cookieObj),
     profileSource: profileNick || profileAvatar ? 'qq-profile' : (cookieNick || avatar ? 'cookie' : 'fallback'),
+    vipSource: profileVip.resolved ? 'qq-profile-vip' : 'profile',
   };
 }
 
-async function getQQLoginInfo() {
+function qqProfileAuthInvalid(value) {
+  if (!value) return false;
+  const payload = value && value.body && typeof value.body === 'object' ? value.body : value;
+  const statusCode = Number(value && value.statusCode);
+  if (statusCode === 401 || statusCode === 403) return true;
+  if (payload && typeof payload === 'object' && (
+    Number(payload.code) === 1000 ||
+    Number(payload.result) === 301 ||
+    Number(payload.code) === 401 ||
+    Number(payload.code) === 403
+  )) return true;
+  const text = [
+    value && value.message,
+    payload && payload.message,
+    payload && payload.msg,
+  ].filter(Boolean).join(' ');
+  return /(?:token|cookie|login|auth|登录|会话).{0,24}(?:expired|invalid|失效|过期|未登录|重新登录|无效|校验失败)/i.test(text)
+    || /(?:expired|invalid|失效|过期|未登录|重新登录|无效).{0,24}(?:token|cookie|login|auth|登录|会话)/i.test(text);
+}
+
+function expiredQQLoginInfo() {
+  return withQQVipSyncState({
+    provider: 'qq',
+    loggedIn: false,
+    preview: false,
+    userId: '',
+    nickname: 'QQ 音乐',
+    avatar: '',
+    vipType: 0,
+    svipType: 0,
+    vipLevel: 'none',
+    isVip: false,
+    isSvip: false,
+    vipLabel: '无VIP',
+    membershipKnown: false,
+    hasCookie: !!qqCookie,
+    playbackKeyReady: false,
+    authExpired: true,
+    reauthRequired: true,
+    stale: true,
+    error: 'LOGIN_EXPIRED',
+  }, false);
+}
+
+async function getQQLoginInfo(options) {
+  options = options || {};
   const cookieObj = qqCookieObject();
   const uin = qqCookieUin(cookieObj);
   const musicKey = qqCookieMusicKey(cookieObj);
   if (!uin || !musicKey) return { provider: 'qq', loggedIn: false, hasCookie: !!qqCookie };
   const fallback = normalizeQQProfile(null, cookieObj);
+  const vipProbePromise = fetchQQVipStatus(cookieObj, { force: !!options.forceVip }).catch(e => {
+    if (options.forceVip) console.warn('[QQLogin] VIP probe skipped:', e.message);
+    return null;
+  });
   try {
     const u = new URL('https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg');
     u.searchParams.set('cid', '205360838');
@@ -3353,16 +3843,23 @@ async function getQQLoginInfo() {
     u.searchParams.set('needNewCode', '0');
     const text = await requestText(u.toString(), {
       headers: { ...QQ_HEADERS, Cookie: qqCookie },
+      timeoutMs: options.forceVip ? 6500 : 10000,
     });
     const body = parseJSONText(text);
+    const vipProbe = await vipProbePromise;
+    if (qqProfileAuthInvalid(body)) return expiredQQLoginInfo();
     const info = normalizeQQProfile(body, cookieObj);
-    if (body && (body.code === 1000 || body.result === 301)) {
-      return { ...fallback, profileUnavailable: true };
-    }
-    return info;
+    return mergeQQVipStatus(info, vipProbe, vipProbe && vipProbe.vipSource);
   } catch (e) {
     console.warn('[QQLogin] profile check failed:', e.message);
-    return { ...fallback, profileUnavailable: true };
+    const vipProbe = await vipProbePromise;
+    if (qqProfileAuthInvalid(e)) return expiredQQLoginInfo();
+    return mergeQQVipStatus({
+      ...fallback,
+      profileUnavailable: true,
+      unavailable: true,
+      loginCheckFailed: true,
+    }, vipProbe, vipProbe && vipProbe.vipSource);
   }
 }
 
@@ -3383,20 +3880,12 @@ function audioProxyHeadersFor(audioUrl, range) {
   try {
     const host = new URL(audioUrl).hostname.toLowerCase();
     if (host.includes('qq.com') || host.includes('qpic.cn')) headers.Referer = 'https://y.qq.com/';
+    if (host.includes('qishui.com') || host.includes('byteimg.com') || host.includes('douyin') || host.includes('bytecdn')) {
+      headers.Referer = 'https://www.qishui.com/';
+    }
   } catch (e) {}
   if (range) headers.Range = range;
   return headers;
-}
-
-function audioContentTypeForUrl(audioUrl, upstreamType) {
-  let pathname = '';
-  try { pathname = new URL(audioUrl).pathname.toLowerCase(); } catch (e) {}
-  if (/\.flac$/.test(pathname)) return 'audio/flac';
-  if (/\.mp3$/.test(pathname)) return 'audio/mpeg';
-  if (/\.(m4a|mp4)$/.test(pathname)) return 'audio/mp4';
-  if (/\.ogg$/.test(pathname)) return 'audio/ogg';
-  if (/\.wav$/.test(pathname)) return 'audio/wav';
-  return upstreamType || 'audio/mpeg';
 }
 
 function mapQQPlaylist(pl, kind) {
@@ -3591,7 +4080,7 @@ function mapQQTrack(track, fallback) {
   };
 }
 
-async function qqSmartboxSearch(keywords, limit) {
+async function qqSmartboxLookup(keywords) {
   const u = new URL(QQ_SMARTBOX_URL);
   u.searchParams.set('format', 'json');
   u.searchParams.set('key', keywords);
@@ -3605,7 +4094,17 @@ async function qqSmartboxSearch(keywords, limit) {
   u.searchParams.set('needNewCode', '0');
   const text = await requestText(u.toString(), { headers: QQ_HEADERS });
   const json = parseJSONText(text);
-  const items = json && json.data && json.data.song && json.data.song.itemlist;
+  if (!json || Number(json.code || 0) !== 0) {
+    const error = new Error(json && (json.message || json.msg) || 'QQ_SMARTBOX_SEARCH_FAILED');
+    error.code = 'QQ_SMARTBOX_SEARCH_FAILED';
+    throw error;
+  }
+  return json && json.data || {};
+}
+
+async function qqSmartboxSearch(keywords, limit) {
+  const data = await qqSmartboxLookup(keywords);
+  const items = data && data.song && data.song.itemlist;
   return (Array.isArray(items) ? items : []).slice(0, Math.max(1, Math.min(limit || 10, 50))).map(mapQQSmartSong);
 }
 
@@ -3623,32 +4122,104 @@ async function qqSongDetail(mid, fallback) {
   return mapQQTrack(data && data.track_info, fallback);
 }
 
-async function handleQQArtistDetail(mid, limit) {
+function normalizeArtistDetailPagination(limit, offset, defaultLimit) {
+  const page = normalizePagination(limit, offset, {
+    defaultLimit,
+    maxLimit: 80,
+  });
+  return {
+    limit: Math.max(10, page.limit),
+    offset: page.offset,
+  };
+}
+
+function firstFiniteNonNegativeCount(values, fallback) {
+  for (const value of values || []) {
+    if (value == null || value === '') continue;
+    const count = Number(value);
+    if (Number.isFinite(count) && count >= 0) return Math.trunc(count);
+  }
+  const fallbackCount = Number(fallback);
+  return Number.isFinite(fallbackCount) && fallbackCount >= 0 ? Math.trunc(fallbackCount) : 0;
+}
+
+function resolveArtistDetailCursor(page, total, rawCount, upstreamHasMore) {
+  const count = firstFiniteNonNegativeCount([rawCount], 0);
+  const cursor = resolvePageCursor(page, total, count, upstreamHasMore);
+  if (count > 0) return cursor;
+  return {
+    ...cursor,
+    nextOffset: page.offset,
+    more: false,
+    hasMore: false,
+  };
+}
+
+function emptyArtistDetailPage(page) {
+  return {
+    total: 0,
+    offset: page.offset,
+    limit: page.limit,
+    nextOffset: page.offset,
+    more: false,
+    hasMore: false,
+  };
+}
+
+async function handleQQArtistDetail(mid, limit, offset) {
   const singerMid = String(mid || '').trim();
-  const num = Math.max(10, Math.min(80, parseInt(limit || '36', 10) || 36));
-  if (!singerMid) return { provider: 'qq', error: 'MISSING_SINGER_MID', artist: null, songs: [] };
+  const page = normalizeArtistDetailPagination(limit, offset, 36);
+  if (!singerMid) {
+    return {
+      provider: 'qq',
+      error: 'MISSING_SINGER_MID',
+      artist: null,
+      songs: [],
+      ...emptyArtistDetailPage(page),
+    };
+  }
   const json = await qqMusicRequest({
     comm: { ct: 24, cv: 0 },
     singer: {
       module: 'music.web_singer_info_svr',
       method: 'get_singer_detail_info',
-      param: { sort: 5, singermid: singerMid, sin: 0, num },
+      param: { sort: 5, singermid: singerMid, sin: page.offset, num: page.limit },
     },
   }, { cookie: true });
   const block = json && json.singer;
   if (!block || Number(block.code || 0) !== 0) {
-    return { provider: 'qq', error: block && (block.message || block.msg || block.code) || 'QQ_ARTIST_DETAIL_FAILED', artist: null, songs: [] };
+    return {
+      provider: 'qq',
+      error: block && (block.message || block.msg || block.code) || 'QQ_ARTIST_DETAIL_FAILED',
+      artist: null,
+      songs: [],
+      ...emptyArtistDetailPage(page),
+    };
   }
   const data = block.data || {};
   const info = data.singer_info || data.singerInfo || {};
   const rawSongs = Array.isArray(data.songlist) ? data.songlist : [];
-  const songs = rawSongs
+  const rawPage = rawSongs.slice(0, page.limit);
+  const songs = rawPage
     .map(raw => mapQQTrack(raw && (raw.track_info || raw.songInfo || raw.songinfo || raw.song) || raw, {}))
     .filter(song => song && song.name && (song.mid || song.id));
   const matchedSongArtist = songs[0] && (songs[0].artists || []).find(a => a && a.mid === singerMid);
   const artistMid = info.mid || singerMid;
   const artistName = info.name || info.title || (matchedSongArtist && matchedSongArtist.name) || '';
-  const totalSong = Number(data.total_song || data.song_count || 0) || songs.length;
+  const reportedTotal = firstFiniteNonNegativeCount([
+    data.total_song,
+    data.song_count,
+    data.total,
+    info.musicSize,
+    info.songCount,
+    info.song_num,
+  ], rawPage.length);
+  const cursor = resolveArtistDetailCursor(
+    page,
+    reportedTotal,
+    rawPage.length,
+    data.more === true || data.hasMore === true || data.has_more === true || Number(data.has_more) === 1,
+  );
   return {
     provider: 'qq',
     artist: {
@@ -3657,12 +4228,17 @@ async function handleQQArtistDetail(mid, limit) {
       mid: artistMid,
       name: artistName,
       avatar: info.pic || info.avatar || qqSingerAvatar(artistMid, 300),
-      fans: Number(info.fans || 0) || 0,
-      musicSize: totalSong,
-      albumSize: Number(data.total_album || 0) || 0,
-      mvSize: Number(data.total_mv || 0) || 0,
+      fans: firstFiniteNonNegativeCount([info.fans], 0),
+      musicSize: cursor.total,
+      albumSize: firstFiniteNonNegativeCount([data.total_album], 0),
+      mvSize: firstFiniteNonNegativeCount([data.total_mv], 0),
     },
-    total: totalSong,
+    total: cursor.total,
+    offset: page.offset,
+    limit: page.limit,
+    nextOffset: cursor.nextOffset,
+    more: cursor.more,
+    hasMore: cursor.hasMore,
     songs,
   };
 }
@@ -3698,6 +4274,302 @@ async function handleQQSearch(keywords, limit, offset) {
   };
 }
 
+function decodeQQSearchText(value) {
+  return decodeHtmlEntities(decodeHtmlEntities(String(value || ''))).trim();
+}
+
+function mapQQTypedArtist(item) {
+  item = item || {};
+  const mid = String(item.mid || item.singermid || '').trim();
+  const id = mid || String(item.id || item.singerid || item.docid || '').trim();
+  const name = decodeQQSearchText(item.name || item.singer || item.singername || item.title);
+  if (!id || !name) return null;
+  return {
+    provider: 'qq',
+    source: 'qq',
+    type: 'artist',
+    id,
+    mid,
+    singerMid: mid,
+    name,
+    avatar: item.pic || item.avatar || qqSingerAvatar(mid, 300),
+    aliases: [],
+    alias: [],
+    albumCount: Number(item.album_count || item.albumCount || 0) || 0,
+    albumSize: Number(item.album_count || item.albumCount || 0) || 0,
+    songCount: Number(item.song_count || item.songCount || 0) || 0,
+    musicCount: Number(item.song_count || item.songCount || 0) || 0,
+    musicSize: Number(item.song_count || item.songCount || 0) || 0,
+    followed: false,
+  };
+}
+
+function mapQQTypedPlaylist(item) {
+  item = item || {};
+  const creator = item.creator && typeof item.creator === 'object' ? item.creator : {};
+  const id = String(item.dissid || item.tid || item.id || item.docid || '').trim();
+  const name = decodeQQSearchText(item.dissname || item.name || item.title);
+  if (!id || !name) return null;
+  return {
+    provider: 'qq',
+    source: 'qq',
+    type: 'playlist',
+    id,
+    name,
+    cover: item.imgurl || item.diss_cover || item.logo || item.picurl || item.cover || '',
+    description: decodeQQSearchText(item.introduction || item.description || item.desc),
+    trackCount: Number(item.song_count || item.song_cnt || item.songnum || item.total_song_num || 0) || 0,
+    playCount: Number(item.listennum || item.listen_num || item.visitnum || item.play_count || 0) || 0,
+    creator: decodeQQSearchText(
+      creator.name ||
+      creator.nick ||
+      creator.nickname ||
+      item.hostname ||
+      item.nick ||
+      (typeof item.creator === 'string' ? item.creator : '')
+    ) || 'QQ 音乐',
+    creatorId: String(creator.creator_uin || creator.qq || creator.id || item.creator_uin || ''),
+    creatorAvatar: creator.avatarUrl || creator.avatar || '',
+    subscribed: false,
+    specialType: 0,
+  };
+}
+
+async function handleQQTypedSearch(keywords, type, limit, offset) {
+  const searchType = String(type || '').trim().toLowerCase();
+  limit = Math.max(1, Math.min(50, Number(limit) || 24));
+  offset = Math.max(0, Number(offset) || 0);
+  if (searchType === 'artist') {
+    const data = await qqSmartboxLookup(keywords);
+    const group = data && data.singer || {};
+    const rawItems = Array.isArray(group.itemlist) ? group.itemlist : [];
+    const pageItems = rawItems.slice(offset, offset + limit);
+    const items = pageItems.map(mapQQTypedArtist).filter(Boolean);
+    return {
+      provider: 'qq',
+      source: 'qq',
+      type: searchType,
+      loggedIn: !!(qqCookieUin(qqCookieObject()) && qqCookieMusicKey(qqCookieObject())),
+      pagination: 'local',
+      items,
+      total: rawItems.length,
+      rawCount: pageItems.length,
+      offset,
+      limit,
+      nextOffset: offset + pageItems.length,
+      hasMore: offset + pageItems.length < rawItems.length,
+    };
+  }
+  if (searchType !== 'playlist') {
+    return {
+      provider: 'qq',
+      source: 'qq',
+      type: searchType,
+      items: [],
+      total: 0,
+      rawCount: 0,
+      offset,
+      limit,
+      nextOffset: offset,
+      hasMore: false,
+      error: 'SEARCH_TYPE_UNSUPPORTED',
+    };
+  }
+  const cookieObject = qqCookieObject();
+  const loggedIn = !!(qqCookieUin(cookieObject) && qqCookieMusicKey(cookieObject));
+  if (!loggedIn) {
+    return {
+      provider: 'qq',
+      source: 'qq',
+      type: searchType,
+      loggedIn: false,
+      requiresLogin: true,
+      items: [],
+      total: 0,
+      rawCount: 0,
+      offset,
+      limit,
+      nextOffset: offset,
+      hasMore: false,
+      error: 'QQ_LOGIN_REQUIRED',
+      message: '请先登录 QQ 音乐，再搜索并打开 QQ 音乐歌单。',
+    };
+  }
+  const pageSize = 50;
+  const pageNumber = Math.floor(offset / pageSize) + 1;
+  const pageStart = (pageNumber - 1) * pageSize;
+  const localStart = offset - pageStart;
+  const rawItems = [];
+  let total = 0;
+  let currentPage = pageNumber;
+  while (rawItems.length < localStart + limit) {
+    const json = await qqGetJSON('https://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist', {
+      remoteplace: 'txt.yqq.playlist',
+      searchid: '1',
+      query: keywords,
+      page_no: currentPage,
+      num_per_page: pageSize,
+      format: 'json',
+    }, { headers: { Referer: 'https://y.qq.com/' } });
+    if (!json || Number(json.code || 0) !== 0) {
+      const error = new Error(json && (json.message || json.msg) || 'QQ_PLAYLIST_SEARCH_FAILED');
+      error.code = 'QQ_PLAYLIST_SEARCH_FAILED';
+      throw error;
+    }
+    const data = json && json.data || {};
+    const pageItems = Array.isArray(data.list) ? data.list : [];
+    total = Number(data.sum || data.display_num || total) || total;
+    rawItems.push(...pageItems);
+    if (!pageItems.length || pageItems.length < pageSize) break;
+    if (total && pageStart + rawItems.length >= total) break;
+    currentPage += 1;
+  }
+  const pageItems = rawItems.slice(localStart, localStart + limit);
+  const items = pageItems.map(mapQQTypedPlaylist).filter(Boolean);
+  const resolvedTotal = Math.max(total, offset + pageItems.length);
+  return {
+    provider: 'qq',
+    source: 'qq',
+    type: searchType,
+    loggedIn: true,
+    items,
+    total: resolvedTotal,
+    rawCount: pageItems.length,
+    offset,
+    limit,
+    nextOffset: offset + pageItems.length,
+    hasMore: offset + pageItems.length < resolvedTotal,
+  };
+}
+
+const QQ_PLAYABLE_PROBE_LIMIT = 4;
+const QQ_PLAYABLE_PROBE_TIMEOUT_MS = 2500;
+const QQ_VKEY_TIMEOUT_MS = 6000;
+const QQ_SONG_URL_TOTAL_TIMEOUT_MS = 9000;
+
+function resolveQQStreamUrl(sip, purl) {
+  const raw = String(purl || '').trim();
+  if (!raw) return '';
+  try {
+    const target = new URL(raw, String(sip || 'https://ws.stream.qqmusic.qq.com/'));
+    return target.protocol === 'https:' || target.protocol === 'http:' ? target.toString() : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+// QQ can return a purl for a high-quality file that responds with 404. Read
+// only the first two bytes so playback can fall back before the renderer loads it.
+function qqProbePlayable(targetUrl, options) {
+  options = options || {};
+  return new Promise(resolve => {
+    let target;
+    try { target = new URL(targetUrl); } catch (_) { resolve(false); return; }
+    if (target.protocol !== 'https:' && target.protocol !== 'http:') { resolve(false); return; }
+    const transport = target.protocol === 'https:' ? https : http;
+    const timeoutMs = Math.max(500, Math.min(8000, Number(options.timeoutMs) || QQ_PLAYABLE_PROBE_TIMEOUT_MS));
+    const signal = options.signal;
+    let request = null;
+    let settled = false;
+    const onAbort = () => {
+      if (request) request.destroy();
+      finish(false);
+    };
+    const finish = ok => {
+      if (settled) return;
+      settled = true;
+      if (signal && typeof signal.removeEventListener === 'function') signal.removeEventListener('abort', onAbort);
+      resolve(!!ok);
+    };
+    if (signal && signal.aborted) { finish(false); return; }
+    try {
+      request = transport.get(target, {
+        headers: {
+          ...QQ_HEADERS,
+          Range: 'bytes=0-1',
+          'Accept-Encoding': 'identity',
+        },
+        timeout: timeoutMs,
+      }, response => {
+        const playable = response.statusCode === 200 || response.statusCode === 206;
+        response.destroy();
+        finish(playable);
+      });
+      if (signal && typeof signal.addEventListener === 'function') signal.addEventListener('abort', onAbort, { once: true });
+      request.on('timeout', () => {
+        request.destroy();
+        finish(false);
+      });
+      request.on('error', () => finish(false));
+    } catch (_) {
+      if (request) request.destroy();
+      finish(false);
+    }
+  });
+}
+
+async function selectQQPlayableInfo(infos, sip, probe, options) {
+  options = options || {};
+  const allInfos = Array.isArray(infos) ? infos : [];
+  const candidates = allInfos
+    .filter(item => item && item.purl)
+    .map(info => ({ info, url: resolveQQStreamUrl(sip, info.purl) }));
+  const fallback = candidates[0] || { info: allInfos[0] || null, url: '' };
+  if (candidates.length < 2) return { ...fallback, verified: false };
+
+  const checks = candidates.slice(0, QQ_PLAYABLE_PROBE_LIMIT);
+  const probePlayable = typeof probe === 'function' ? probe : qqProbePlayable;
+  const states = checks.map(item => item.url ? null : false);
+  const controllers = checks.map(() => typeof AbortController === 'function' ? new AbortController() : null);
+  const budgetMs = Math.max(50, Math.min(
+    QQ_PLAYABLE_PROBE_TIMEOUT_MS,
+    Number(options.timeoutMs) || QQ_PLAYABLE_PROBE_TIMEOUT_MS
+  ));
+
+  return new Promise(resolve => {
+    let completed = states.filter(state => state !== null).length;
+    let finished = false;
+    const budgetTimer = setTimeout(() => {
+      finish({ ...fallback, verified: false, timedOut: true });
+    }, budgetMs);
+    const finish = result => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(budgetTimer);
+      controllers.forEach(controller => {
+        if (controller && !controller.signal.aborted) controller.abort();
+      });
+      resolve(result);
+    };
+    const decide = () => {
+      if (finished) return;
+      for (let index = 0; index < states.length; index += 1) {
+        if (states[index] === null) return;
+        if (states[index] === true) {
+          finish({ ...checks[index], verified: true });
+          return;
+        }
+      }
+      if (completed >= states.length) finish({ ...fallback, verified: false });
+    };
+
+    checks.forEach((candidate, index) => {
+      if (!candidate.url) return;
+      const controller = controllers[index];
+      Promise.resolve().then(() => probePlayable(candidate.url, {
+        timeoutMs: budgetMs,
+        signal: controller && controller.signal,
+      })).then(Boolean, () => false).then(playable => {
+        if (states[index] !== null) return;
+        states[index] = playable;
+        completed += 1;
+        decide();
+      });
+    });
+    decide();
+  });
+}
+
 async function handleQQSongUrl(mid, mediaMid, qualityPreference) {
   const songmid = String(mid || '').trim();
   if (!songmid) return { provider: 'qq', url: '', error: 'MISSING_MID', message: 'Missing QQ song mid' };
@@ -3708,6 +4580,8 @@ async function handleQQSongUrl(mid, mediaMid, qualityPreference) {
   const playbackKey = qqCookiePlaybackKey(cookieObj);
   const fileMediaMid = String(mediaMid || '').trim();
   const requestedQuality = normalizeQualityPreference(qualityPreference);
+  const deadlineAt = Date.now() + QQ_SONG_URL_TOTAL_TIMEOUT_MS;
+  const remainingBudgetMs = () => Math.max(50, deadlineAt - Date.now());
   const mediaIds = [];
   if (fileMediaMid) mediaIds.push(fileMediaMid);
   if (songmid && !mediaIds.includes(songmid)) mediaIds.push(songmid);
@@ -3734,17 +4608,23 @@ async function handleQQSongUrl(mid, mediaMid, qualityPreference) {
       method: 'CgiGetVkey',
       param,
     },
-  }, { cookie: true });
+  }, {
+    cookie: true,
+    timeoutMs: Math.min(QQ_VKEY_TIMEOUT_MS, remainingBudgetMs()),
+  });
   const data = json && json.req_0 && json.req_0.data;
   const infos = (data && Array.isArray(data.midurlinfo)) ? data.midurlinfo : [];
-  const info = infos.find(item => item && item.purl) || infos[0];
+  const sip = (data && data.sip && data.sip[0]) || 'https://ws.stream.qqmusic.qq.com/';
+  const selected = await selectQQPlayableInfo(infos, sip, null, {
+    timeoutMs: remainingBudgetMs(),
+  });
+  const info = selected.info;
   const purl = info && info.purl;
   if (purl) {
-    const sip = (data.sip && data.sip[0]) || 'https://ws.stream.qqmusic.qq.com/';
     const fileMeta = fileCandidates.find(item => item.filename === info.filename) || {};
     return {
       provider: 'qq',
-      url: sip + purl,
+      url: selected.url || resolveQQStreamUrl(sip, purl),
       trial: false,
       playable: true,
       level: fileMeta.level || info.filename || '',
@@ -4213,11 +5093,8 @@ function normalizeNeteaseVip(profile, account, extra) {
   extra = extra || {};
   const vipInfo = profile.vipInfo || profile.vipinfo || account.vipInfo || account.vipinfo || extra.vipInfo || extra.vipinfo || {};
   const objects = [account, profile, vipInfo, extra];
-  const vipType = firstPositiveNumberFrom(objects, [
-    'vipType', 'vip_type', 'viptype', 'musicVipType', 'music_vip_type',
-    'musicVipLevel', 'music_vip_level', 'redVipLevel', 'red_vip_level',
-    'blackVipLevel', 'black_vip_level', 'luxuryVipLevel', 'luxury_vip_level',
-    'svipType', 'svip_type',
+  const vipType = firstPositiveNumberFrom([profile, account, vipInfo], [
+    'vipType', 'vip_type', 'viptype',
   ]);
   const text = collectVipStringValues({ account, profile, vipInfo, extra }, [], 0).join(' ').toLowerCase();
   const svipFlag = objects.some(obj => obj && (
@@ -4526,6 +5403,10 @@ async function getLoginInfo() {
 // ====================================================================
 //  HTTP Server
 // ====================================================================
+const providerRoutes = createProviderRoutes({
+  userDataDir: path.dirname(COOKIE_FILE),
+});
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost:' + PORT);
   const pn = url.pathname;
@@ -4535,6 +5416,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (!guardApiMutation(req, res, pn)) return;
+    if (await providerRoutes.handle(req, res, url)) return;
   }
 
   if (pn === '/api/app/version') {
@@ -4631,7 +5513,7 @@ const server = http.createServer(async (req, res) => {
       enabled: info.allowed && info.available,
       dir: info.dir,
       drive: info.drive,
-      reason: !info.allowed ? 'C_DRIVE_DISABLED' : (!info.available ? 'TARGET_DRIVE_UNAVAILABLE' : ''),
+      reason: !info.allowed ? 'INVALID_CACHE_PATH' : (!info.available ? 'TARGET_DRIVE_UNAVAILABLE' : ''),
       mode: info.allowed && info.available ? 'disk' : 'memory-only',
     });
     return;
@@ -4677,7 +5559,48 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'DELETE') {
+      if (String(req.headers['x-mineradio-request'] || '') !== '1') {
+        sendJSON(res, { ok: false, error: 'UNTRUSTED_MUTATION_REQUEST' }, 403);
+        return;
+      }
+      try {
+        sendJSON(res, clearBeatMapCache());
+      } catch (err) {
+        sendJSON(res, {
+          ok: false,
+          error: err.code || err.message || 'BEAT_CACHE_CLEAR_FAILED',
+        }, 500);
+      }
+      return;
+    }
+
     sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
+    return;
+  }
+
+  if (pn === '/api/shared-playlist/resolve') {
+    try {
+      const body = await readRequestBody(req);
+      const resolved = await resolveSharedPlaylistWithTracks(body.text || body.url || body.input || '', {
+        userAgent: UA,
+        timeoutMs: 8000,
+      });
+      sendJSON(res, { ok: true, ...resolved });
+    } catch (err) {
+      const code = err && (err.code || err.message) || 'SHARED_PLAYLIST_RESOLVE_FAILED';
+      const resolverStatus = Number(err && err.statusCode);
+      const status = Number.isInteger(resolverStatus) && resolverStatus >= 400 && resolverStatus <= 599
+        ? resolverStatus
+        : (code === 'UNSUPPORTED_SHARED_PLAYLIST' || code === 'SHARED_PLAYLIST_ID_MISSING' ? 400 : 502);
+      sendJSON(res, {
+        ok: false,
+        error: code,
+        message: code === 'UNSUPPORTED_SHARED_PLAYLIST'
+          ? '暂不支持这个分享链接'
+          : (code === 'SHARED_PLAYLIST_ID_MISSING' ? '没有从分享链接中识别到歌单' : '分享链接解析失败'),
+      }, status);
+    }
     return;
   }
 
@@ -4885,16 +5808,37 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 搜索 ----------
   if (pn === '/api/search') {
+    const keywords = String(url.searchParams.get('keywords') || '').trim().slice(0, 120);
+    const page = normalizePagination(url.searchParams.get('limit'), url.searchParams.get('offset'), {
+      defaultLimit: 20,
+      maxLimit: 50,
+    });
+    const emptyResponse = {
+      type: 'song',
+      keywords,
+      ...page,
+      total: 0,
+      nextOffset: page.offset,
+      more: false,
+      hasMore: false,
+      empty: true,
+      items: [],
+      songs: [],
+    };
+    if (req.method !== 'GET') {
+      sendJSON(res, { ...emptyResponse, ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
+      return;
+    }
+    if (!keywords) {
+      sendJSON(res, { ...emptyResponse, ok: false, error: 'MISSING_KEYWORDS' }, 400);
+      return;
+    }
     try {
-      const kw = String(url.searchParams.get('keywords') || '').trim().slice(0, 120);
-      const limit = Math.max(1, Math.min(50, parseInt(url.searchParams.get('limit') || '20', 10) || 20));
-      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
-      if (!kw) { sendJSON(res, { ok: false, error: 'MISSING_KEYWORDS', songs: [], total: 0, offset, limit, hasMore: false }, 400); return; }
-      const result = await handleSearch(kw, limit, offset);
-      sendJSON(res, { ok: true, error: '', ...result });
+      const result = await handleSearch(keywords, page.limit, page.offset);
+      sendJSON(res, { ok: true, error: '', keywords, ...result });
     } catch (err) {
       console.error('[Search]', err);
-      sendJSON(res, { ok: false, error: err.message, songs: [], total: 0, hasMore: false }, 500);
+      sendNeteaseApiFailure(res, err, 'SEARCH_FAILED', emptyResponse, false);
     }
     return;
   }
@@ -4902,77 +5846,188 @@ const server = http.createServer(async (req, res) => {
   if (pn === '/api/search/typed') {
     const keywords = String(url.searchParams.get('keywords') || '').trim().slice(0, 120);
     const type = normalizeTypedSearchType(url.searchParams.get('type'));
+    const requestedProvider = url.searchParams.has('provider')
+      ? url.searchParams.get('provider')
+      : (url.searchParams.has('source') ? url.searchParams.get('source') : 'netease');
+    const provider = normalizeTypedSearchProvider(requestedProvider);
     const page = normalizePagination(url.searchParams.get('limit'), url.searchParams.get('offset'), {
       defaultLimit: 24,
       maxLimit: 50,
     });
+    const emptyResponse = {
+      provider: provider || String(requestedProvider || '').trim().toLowerCase(),
+      source: provider || String(requestedProvider || '').trim().toLowerCase(),
+      type,
+      keywords,
+      ...page,
+      total: 0,
+      nextOffset: page.offset,
+      more: false,
+      hasMore: false,
+      empty: true,
+      items: [],
+      artists: [],
+      albums: [],
+      playlists: [],
+    };
     if (req.method !== 'GET') {
-      sendJSON(res, { ok: false, error: 'METHOD_NOT_ALLOWED', type, keywords, ...page, total: 0, items: [] }, 405);
+      sendJSON(res, { ...emptyResponse, ok: false, error: 'METHOD_NOT_ALLOWED' }, 405);
       return;
     }
     if (!keywords) {
-      sendJSON(res, { ok: false, error: 'MISSING_KEYWORDS', type, keywords, ...page, total: 0, hasMore: false, items: [], empty: true }, 400);
+      sendJSON(res, { ...emptyResponse, ok: false, error: 'MISSING_KEYWORDS' }, 400);
       return;
     }
     if (!type) {
       sendJSON(res, {
+        ...emptyResponse,
         ok: false,
         error: 'INVALID_SEARCH_TYPE',
         supportedTypes: Object.keys(TYPED_SEARCH_TYPES),
-        type,
-        keywords,
-        ...page,
-        total: 0,
-        hasMore: false,
-        items: [],
-        empty: true,
+      }, 400);
+      return;
+    }
+    if (!provider) {
+      sendJSON(res, {
+        ...emptyResponse,
+        ok: false,
+        error: 'INVALID_SEARCH_PROVIDER',
+        supportedProviders: Object.keys(PROVIDER_TYPED_SEARCH_TYPES),
+      }, 400);
+      return;
+    }
+    if (!PROVIDER_TYPED_SEARCH_TYPES[provider].includes(type)) {
+      sendJSON(res, {
+        ...emptyResponse,
+        provider,
+        source: provider,
+        ok: false,
+        error: 'SEARCH_TYPE_UNSUPPORTED',
+        supportedTypes: PROVIDER_TYPED_SEARCH_TYPES[provider],
       }, 400);
       return;
     }
     try {
-      const requestResult = await callPublicNetease(cookie => cloudsearch({
-        keywords,
-        type: TYPED_SEARCH_TYPES[type].apiType,
-        limit: page.limit,
-        offset: page.offset,
-        cookie,
-        timestamp: Date.now(),
-      }));
-      const body = throwOnNeteaseApiFailure(requestResult.result, 'TYPED_SEARCH_FAILED');
-      const mapped = mapTypedSearchResult(body, type);
-      const hasMore = page.offset + mapped.items.length < mapped.total;
+      if (provider === 'netease') {
+        const requestResult = await callPublicNetease(cookie => cloudsearch({
+          keywords,
+          type: TYPED_SEARCH_TYPES[type].apiType,
+          limit: page.limit,
+          offset: page.offset,
+          cookie,
+          timestamp: Date.now(),
+        }));
+        const body = throwOnNeteaseApiFailure(requestResult.result, 'TYPED_SEARCH_FAILED');
+        const mapped = mapTypedSearchResult(body, type);
+        const cursor = resolvePageCursor(
+          page,
+          mapped.total,
+          mapped.rawCount,
+          mapped.upstreamHasMore,
+        );
+        sendJSON(res, {
+          ...emptyResponse,
+          ok: true,
+          provider,
+          source: provider,
+          requiresLogin: false,
+          loggedIn: requestResult.authExpired ? false : null,
+          authExpired: requestResult.authExpired,
+          error: '',
+          type,
+          keywords,
+          ...page,
+          total: cursor.total,
+          nextOffset: cursor.nextOffset,
+          more: cursor.more,
+          hasMore: cursor.hasMore,
+          empty: mapped.items.length === 0,
+          items: mapped.items,
+          [mapped.listKey]: mapped.items,
+        });
+        return;
+      }
+
+      const result = provider === 'qq'
+        ? await handleQQTypedSearch(keywords, type, page.limit, page.offset)
+        : await providerRoutes.searchTyped(provider, type, keywords, page.limit, page.offset);
+      if (result && result.error) {
+        const statusCode = typedSearchErrorStatus(result.error);
+        sendJSON(res, {
+          ...emptyResponse,
+          ...result,
+          ok: false,
+          provider,
+          source: provider,
+          type,
+          keywords,
+          ...page,
+          total: 0,
+          nextOffset: page.offset,
+          more: false,
+          hasMore: false,
+          empty: true,
+          items: [],
+          artists: [],
+          albums: [],
+          playlists: [],
+          requiresLogin: statusCode === 401 || result.requiresLogin === true,
+        }, statusCode);
+        return;
+      }
+      const items = result && Array.isArray(result.items) ? result.items : [];
+      const rawCount = Math.max(0, Number(result && result.rawCount) || items.length);
+      const cursor = resolvePageCursor(
+        page,
+        Number(result && result.total) || 0,
+        rawCount,
+        result && result.hasMore,
+      );
+      const hasMore = result && typeof result.hasMore === 'boolean'
+        ? result.hasMore
+        : cursor.hasMore;
+      const explicitNextOffset = Number(result && result.nextOffset);
+      const nextOffset = Number.isFinite(explicitNextOffset) && explicitNextOffset >= page.offset
+        ? explicitNextOffset
+        : cursor.nextOffset;
+      const listKey = typedSearchListKey(type);
       sendJSON(res, {
+        ...emptyResponse,
+        ...(result || {}),
         ok: true,
-        requiresLogin: false,
-        loggedIn: requestResult.authExpired ? false : null,
-        authExpired: requestResult.authExpired,
+        provider,
+        source: provider,
         error: '',
         type,
         keywords,
         ...page,
-        total: mapped.total,
-        nextOffset: Math.min(mapped.total, page.offset + (hasMore ? page.limit : mapped.items.length)),
+        total: cursor.total,
+        nextOffset,
         more: hasMore,
         hasMore,
-        empty: mapped.items.length === 0,
-        items: mapped.items,
-        [mapped.listKey]: mapped.items,
+        empty: items.length === 0,
+        items,
+        [listKey]: items,
       });
     } catch (err) {
-      console.error('[TypedSearch:' + type + ']', err);
-      sendNeteaseApiFailure(res, err, 'TYPED_SEARCH_FAILED', {
-        type,
-        keywords,
-        ...page,
-        total: 0,
-        more: false,
-        hasMore: false,
-        empty: true,
-        items: [],
-        artists: [],
-        albums: [],
-        playlists: [],
-      }, false);
+      console.error('[TypedSearch:' + provider + ':' + type + ']', err);
+      if (provider === 'netease') {
+        sendNeteaseApiFailure(res, err, 'TYPED_SEARCH_FAILED', emptyResponse, false);
+        return;
+      }
+      const statusCode = typedSearchErrorStatus(
+        err && (err.code || err.message),
+        Number(err && err.statusCode) === 429 ? 429 : (Number(err && err.statusCode) === 401 ? 401 : 502),
+      );
+      sendJSON(res, {
+        ...emptyResponse,
+        ok: false,
+        provider,
+        source: provider,
+        error: (provider + '_TYPED_SEARCH_FAILED').toUpperCase(),
+        message: err && err.message || 'Typed search failed',
+        requiresLogin: statusCode === 401,
+      }, statusCode);
     }
     return;
   }
@@ -5023,7 +6078,11 @@ const server = http.createServer(async (req, res) => {
   // ---------- 歌曲URL ----------
   if (pn === '/api/qq/login/status') {
     try {
-      const info = await getQQLoginInfo();
+      const forceVip = /^(1|true|yes)$/i.test(String(
+        url.searchParams.get('forceVip') || url.searchParams.get('force') || ''
+      ));
+      const info = await getQQLoginInfo({ forceVip });
+      if (info.authExpired) saveQQCookie('');
       sendJSON(res, info);
     } catch (err) {
       console.error('[QQLoginStatus]', err);
@@ -5042,9 +6101,30 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, { provider: 'qq', loggedIn: false, error: 'INVALID_QQ_COOKIE', message: 'QQ cookie 缺少 uin 或有效登录票据' }, 400);
         return;
       }
-      saveQQCookie(normalized);
-      const info = await getQQLoginInfo();
-      sendJSON(res, { ...info, saved: true });
+      if (!saveQQCookie(normalized)) {
+        sendJSON(res, {
+          provider: 'qq',
+          ok: false,
+          loggedIn: false,
+          sessionPersisted: false,
+          error: 'LOGIN_SESSION_PERSIST_FAILED',
+          message: 'QQ 音乐登录成功，但安全凭据无法写入本机',
+        }, 503);
+        return;
+      }
+      const info = await getQQLoginInfo({ forceVip: true });
+      if (info.authExpired) {
+        saveQQCookie('');
+        sendJSON(res, {
+          ...info,
+          ok: false,
+          saved: false,
+          sessionPersisted: false,
+          message: 'QQ 音乐登录凭据已失效，请重新扫码登录',
+        }, 401);
+        return;
+      }
+      sendJSON(res, { ...info, ok: true, saved: true, sessionPersisted: true });
     } catch (err) {
       console.error('[QQLoginCookie]', err);
       sendJSON(res, { provider: 'qq', loggedIn: false, error: err.message }, 500);
@@ -5053,8 +6133,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pn === '/api/qq/logout') {
-    saveQQCookie('');
-    sendJSON(res, { provider: 'qq', ok: true, loggedIn: false });
+    const cleared = saveQQCookie('');
+    sendJSON(res, {
+      provider: 'qq',
+      ok: cleared,
+      loggedIn: cleared ? false : !!qqCookie,
+      error: cleared ? '' : 'LOGIN_SESSION_CLEAR_FAILED',
+    }, cleared ? 200 : 500);
     return;
   }
 
@@ -5082,18 +6167,34 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pn === '/api/qq/artist/detail') {
+    const page = normalizeArtistDetailPagination(
+      url.searchParams.get('limit'),
+      url.searchParams.get('offset'),
+      36,
+    );
     try {
       const mid = url.searchParams.get('mid') || url.searchParams.get('singermid') || '';
-      const limit = Math.max(10, Math.min(80, parseInt(url.searchParams.get('limit') || '36', 10) || 36));
       if (!mid) {
-        sendJSON(res, { provider: 'qq', error: 'MISSING_SINGER_MID', artist: null, songs: [] }, 400);
+        sendJSON(res, {
+          provider: 'qq',
+          error: 'MISSING_SINGER_MID',
+          artist: null,
+          songs: [],
+          ...emptyArtistDetailPage(page),
+        }, 400);
         return;
       }
-      const data = await handleQQArtistDetail(mid, limit);
+      const data = await handleQQArtistDetail(mid, page.limit, page.offset);
       sendJSON(res, data);
     } catch (err) {
       console.error('[QQArtistDetail]', err);
-      sendJSON(res, { provider: 'qq', error: err.message, artist: null, songs: [] }, 500);
+      sendJSON(res, {
+        provider: 'qq',
+        error: err.message,
+        artist: null,
+        songs: [],
+        ...emptyArtistDetailPage(page),
+      }, 500);
     }
     return;
   }
@@ -5253,7 +6354,16 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, { loggedIn: false, error: 'INVALID_NETEASE_COOKIE', message: '网易云 cookie 缺少 MUSIC_U' }, 400);
         return;
       }
-      saveCookie(normalized);
+      if (!saveCookie(normalized)) {
+        sendJSON(res, {
+          ok: false,
+          loggedIn: false,
+          sessionPersisted: false,
+          error: 'LOGIN_SESSION_PERSIST_FAILED',
+          message: '网易云登录成功，但安全凭据无法写入本机',
+        }, 503);
+        return;
+      }
       let info = await getLoginInfo();
       if (!info.loggedIn && userCookie) {
         info = {
@@ -5268,7 +6378,7 @@ const server = http.createServer(async (req, res) => {
           vipLabel: '无VIP',
         };
       }
-      sendJSON(res, { ...info, saved: true, hasCookie: !!userCookie });
+      sendJSON(res, { ...info, ok: true, saved: true, sessionPersisted: true, hasCookie: !!userCookie });
     } catch (err) {
       console.error('[LoginCookie]', err);
       sendJSON(res, { loggedIn: false, error: err.message }, 500);
@@ -5290,8 +6400,17 @@ const server = http.createServer(async (req, res) => {
       const started = Date.now();
       const introSec = Math.max(0, Number(url.searchParams.get('intro') || 0) || 0);
       const map = introSec
-        ? await analyzePodcastDjIntro(audioUrl, { durationSec, introSec, userAgent: UA })
-        : await analyzePodcastDjStream(audioUrl, { durationSec, userAgent: UA });
+        ? await analyzePodcastDjIntro(audioUrl, {
+          durationSec,
+          introSec,
+          userAgent: UA,
+          fetch: fetchPodcastAnalysisMedia,
+        })
+        : await analyzePodcastDjStream(audioUrl, {
+          durationSec,
+          userAgent: UA,
+          fetch: fetchPodcastAnalysisMedia,
+        });
       console.log('[PodcastDjBeatmap] done beats:', map.visualBeatCount || 0, 'ms:', Date.now() - started, 'decode:', map.decode || {});
       sendJSON(res, { ok: true, map });
     } catch (err) {
@@ -5348,7 +6467,17 @@ const server = http.createServer(async (req, res) => {
       }
       // 803 = 授权成功, 802 = 已扫待确认, 801 = 等待扫码, 800 = 二维码过期
       if (code === 803) {
-        if (cookie) saveCookie(cookie);
+        if (cookie && !saveCookie(cookie)) {
+          sendJSON(res, {
+            code,
+            ok: false,
+            loggedIn: false,
+            sessionPersisted: false,
+            error: 'LOGIN_SESSION_PERSIST_FAILED',
+            message: '网易云登录成功，但安全凭据无法写入本机',
+          }, 503);
+          return;
+        }
         let info = await getLoginInfo();
         if (!info.loggedIn) {
           const profile = body.profile || (body.data && body.data.profile) || {};
@@ -5367,7 +6496,14 @@ const server = http.createServer(async (req, res) => {
             vipLabel: '无VIP',
           };
         }
-        sendJSON(res, { code, message: msg, ...info, hasCookie: !!cookie });
+        sendJSON(res, {
+          code,
+          message: msg,
+          ...info,
+          ok: !!cookie && info.loggedIn,
+          sessionPersisted: !!cookie && info.loggedIn,
+          hasCookie: !!cookie,
+        });
         return;
       }
       sendJSON(res, { code, message: msg, nickname: body.nickname, avatar: body.avatarUrl });
@@ -5385,8 +6521,12 @@ const server = http.createServer(async (req, res) => {
   // ---------- 登出 ----------
   if (pn === '/api/logout') {
     try { await logout({ cookie: userCookie }); } catch (e) {}
-    saveCookie('');
-    sendJSON(res, { ok: true });
+    const cleared = saveCookie('');
+    sendJSON(res, {
+      ok: cleared,
+      loggedIn: cleared ? false : !!userCookie,
+      error: cleared ? '' : 'LOGIN_SESSION_CLEAR_FAILED',
+    }, cleared ? 200 : 500);
     return;
   }
 
@@ -6102,32 +7242,95 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 歌手主页 / 热门歌曲 ----------
   if (pn === '/api/artist/detail') {
+    const page = normalizeArtistDetailPagination(
+      url.searchParams.get('limit'),
+      url.searchParams.get('offset'),
+      30,
+    );
     try {
       const id = url.searchParams.get('id');
-      const limit = Math.max(10, Math.min(80, parseInt(url.searchParams.get('limit') || '30', 10) || 30));
-      if (!id) { sendJSON(res, { error: 'Missing artist id', songs: [] }, 400); return; }
+      if (!id) {
+        sendJSON(res, {
+          error: 'Missing artist id',
+          songs: [],
+          authExpired: false,
+          ...emptyArtistDetailPage(page),
+        }, 400);
+        return;
+      }
+      let authExpired = false;
       let detailBody = {};
       try {
-        const detail = await artist_detail({ id, cookie: userCookie, timestamp: Date.now() });
-        detailBody = detail.body || detail || {};
+        const requestResult = await callPublicNetease(cookie => artist_detail({
+          id,
+          cookie,
+          timestamp: Date.now(),
+        }));
+        authExpired = authExpired || requestResult.authExpired;
+        detailBody = requestResult.result && (requestResult.result.body || requestResult.result) || {};
       } catch (e) {
         console.warn('[ArtistDetail] detail failed:', e.message);
       }
       let rawSongs = [];
+      let songsBody = {};
       try {
-        const list = await artist_songs({ id, order: 'hot', limit, offset: 0, cookie: userCookie, timestamp: Date.now() });
-        const b = list.body || list || {};
-        rawSongs = (b.songs || (b.data && b.data.songs) || []);
+        const requestResult = await callPublicNetease(cookie => artist_songs({
+          id,
+          order: 'hot',
+          limit: page.limit,
+          offset: page.offset,
+          cookie,
+          timestamp: Date.now(),
+        }));
+        authExpired = authExpired || requestResult.authExpired;
+        songsBody = requestResult.result && (requestResult.result.body || requestResult.result) || {};
+        rawSongs = songsBody.songs || (songsBody.data && songsBody.data.songs) || [];
+        if (!Array.isArray(rawSongs)) rawSongs = [];
       } catch (e) {
         console.warn('[ArtistSongs] hot failed:', e.message);
       }
-      if (!rawSongs.length) {
-        const top = await artist_top_song({ id, cookie: userCookie, timestamp: Date.now() });
-        const b = top.body || top || {};
-        rawSongs = b.songs || [];
+      let usedTopSongFallback = false;
+      if (page.offset === 0 && !rawSongs.length) {
+        try {
+          const requestResult = await callPublicNetease(cookie => artist_top_song({
+            id,
+            cookie,
+            timestamp: Date.now(),
+          }));
+          authExpired = authExpired || requestResult.authExpired;
+          const fallbackBody = requestResult.result && (requestResult.result.body || requestResult.result) || {};
+          rawSongs = Array.isArray(fallbackBody.songs) ? fallbackBody.songs : [];
+          usedTopSongFallback = true;
+        } catch (e) {
+          console.warn('[ArtistSongs] top fallback failed:', e.message);
+        }
       }
       const artist = detailBody.artist || (detailBody.data && (detailBody.data.artist || detailBody.data)) || {};
-      const songs = rawSongs.map(mapSongRecord).filter(s => s.id).slice(0, limit);
+      const rawPage = rawSongs.slice(0, page.limit);
+      const songs = rawPage.map(mapSongRecord).filter(s => s.id);
+      const songsData = songsBody.data && typeof songsBody.data === 'object' ? songsBody.data : {};
+      const reportedTotal = firstFiniteNonNegativeCount([
+        songsBody.total,
+        songsBody.songCount,
+        songsData.total,
+        songsData.songCount,
+        artist.musicSize,
+        artist.songSize,
+      ], rawPage.length);
+      const cursor = usedTopSongFallback
+        ? {
+          total: songs.length,
+          nextOffset: page.offset + songs.length,
+          more: false,
+          hasMore: false,
+        }
+        : resolveArtistDetailCursor(
+          page,
+          reportedTotal,
+          rawPage.length,
+          songsBody.more === true || songsBody.hasMore === true
+            || songsData.more === true || songsData.hasMore === true,
+        );
       sendJSON(res, {
         id,
         artist: {
@@ -6135,15 +7338,27 @@ const server = http.createServer(async (req, res) => {
           name: artist.name || artist.artistName || '',
           avatar: artist.avatar || artist.cover || artist.picUrl || artist.img1v1Url || '',
           brief: artist.briefDesc || artist.description || artist.desc || '',
-          musicSize: artist.musicSize || artist.songSize || 0,
-          albumSize: artist.albumSize || 0,
+          musicSize: firstFiniteNonNegativeCount([artist.musicSize, artist.songSize], cursor.total),
+          albumSize: firstFiniteNonNegativeCount([artist.albumSize], 0),
         },
         songs,
+        total: cursor.total,
+        offset: page.offset,
+        limit: page.limit,
+        nextOffset: cursor.nextOffset,
+        more: cursor.more,
+        hasMore: cursor.hasMore,
+        authExpired,
         body: detailBody,
       });
     } catch (err) {
       console.error('[ArtistDetail]', err);
-      sendJSON(res, { error: err.message, songs: [] }, 500);
+      sendJSON(res, {
+        error: err.message,
+        songs: [],
+        authExpired: false,
+        ...emptyArtistDetailPage(page),
+      }, 500);
     }
     return;
   }
@@ -6249,29 +7464,15 @@ const server = http.createServer(async (req, res) => {
 
   // ---------- 封面代理 (带 CORS 头, 给 canvas 提取像素用) ----------
   if (pn === '/api/cover') {
-    try {
-      const coverUrl = url.searchParams.get('url');
-      // URL 校验: 必须是 http(s) 开头, 否则直接 404 (不要让 fetch 抛错)
-      if (!coverUrl || !/^https?:\/\//i.test(coverUrl)) {
-        res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
-        res.end('Invalid cover url');
-        return;
-      }
-      const resp = await fetch(coverUrl, { headers: { 'User-Agent': UA, 'Referer': 'https://music.163.com/' } });
-      const ct  = resp.headers.get('content-type') || 'image/jpeg';
-      const cl  = resp.headers.get('content-length');
-      const hdr = {
-        'Content-Type': ct,
-        'Access-Control-Allow-Origin': '*',
-        'Cross-Origin-Resource-Policy': 'cross-origin',
-        'Cache-Control': 'public, max-age=86400',
-      };
-      if (cl) hdr['Content-Length'] = cl;
-      res.writeHead(resp.status, hdr);
-      const reader = resp.body.getReader();
-      while (true) { const c = await reader.read(); if (c.done) break; res.write(c.value); }
-      res.end();
-    } catch (err) { console.error('[Cover]', err); res.writeHead(500); res.end(); }
+    const coverUrl = url.searchParams.get('url');
+    await mediaProxy.pipe(req, res, coverUrl, {
+      kind: 'image',
+      headers: {
+        'User-Agent': UA,
+        Referer: 'https://music.163.com/',
+      },
+      cacheControl: 'public, max-age=86400',
+    });
     return;
   }
 
@@ -6281,20 +7482,48 @@ const server = http.createServer(async (req, res) => {
       const audioUrl = url.searchParams.get('url');
       if (!audioUrl) { res.writeHead(400); res.end('Missing url'); return; }
       const range = req.headers.range || '';
-      const hdr = audioProxyHeadersFor(audioUrl, range);
-      const up = await fetch(audioUrl, { headers: hdr });
-      const out = {
-        'Content-Type': audioContentTypeForUrl(audioUrl, up.headers.get('content-type')),
-        'Access-Control-Allow-Origin': '*',
-        'Accept-Ranges': 'bytes',
-      };
-      const cl = up.headers.get('content-length'); if (cl) out['Content-Length'] = cl;
-      const cr = up.headers.get('content-range');  if (cr) out['Content-Range']  = cr;
-      res.writeHead(up.status, out);
-      const reader = up.body.getReader();
-      while (true) { const c = await reader.read(); if (c.done) break; res.write(c.value); }
-      res.end();
-    } catch (err) { console.error('[Audio]', err); res.writeHead(500); res.end(); }
+      if (audioUrl.includes('#auth=')) {
+        const downstreamController = new AbortController();
+        const abortDownstream = () => downstreamController.abort();
+        req.once('aborted', abortDownstream);
+        res.once('close', abortDownstream);
+        let decrypted;
+        try {
+          decrypted = await qishuiAudioProxy.load(
+            audioUrl,
+            audioProxyHeadersFor(audioUrl, ''),
+            { signal: downstreamController.signal }
+          );
+        } finally {
+          req.removeListener('aborted', abortDownstream);
+          res.removeListener('close', abortDownstream);
+        }
+        if (downstreamController.signal.aborted || res.destroyed || res.writableEnded) return;
+        if (decrypted && decrypted.buffer) {
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          sendQishuiAudioBuffer(res, decrypted, range, req.method);
+          return;
+        }
+      }
+      await mediaProxy.pipe(req, res, audioUrl, {
+        kind: 'audio',
+        headers: audioProxyHeadersFor(audioUrl, range),
+        cacheControl: 'no-store',
+      });
+    } catch (err) {
+      if (err && err.code === 'QISHUI_AUDIO_CLIENT_ABORTED') return;
+      console.error('[Audio]', err && (err.code || err.message || err));
+      if (res.headersSent) {
+        try { res.destroy(); } catch (_) {}
+        return;
+      }
+      const statusCode = Number(err && err.statusCode);
+      res.writeHead(statusCode >= 400 && statusCode <= 599 ? statusCode : 500, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(err && err.message ? err.message : 'Audio proxy failed');
+    }
     return;
   }
 

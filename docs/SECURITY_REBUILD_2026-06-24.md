@@ -8,7 +8,7 @@
 
 ## Current Source Boundary
 
-- Active source repository: `E:\桌面\播放器软件\Mineradio\resources\app`
+- Active source repository: the current Git repository root
 - Current code version: `1.1.0`
 - Any generated `dist/` output must come from this current source tree and be scanned before upload.
 - `.playwright-cli/`, `output/`, and `tmp/` are ignored and must not be pushed.
@@ -18,7 +18,7 @@
 
 - Defender signature update completed before verification.
 - Defender scan of current source via an English junction returned: `found no threats`.
-- Huorong detections shown by the user were concentrated in `E:\桌面\播放器软件\工作区备份\2026-06-18-workspace-cleanup`, mostly old `node_modules`, old builder caches, and old packaged backup files.
+- Huorong detections shown by the user were concentrated in an old local workspace backup, mostly old `node_modules`, old builder caches, and old packaged backup files.
 - Those old backup files must not be used as restore sources.
 
 ## Update Fix Boundary

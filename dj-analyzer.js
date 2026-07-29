@@ -1,6 +1,14 @@
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const FULL_STREAM_QUALITY_LIMIT_SEC = 7200;
 
+function podcastFetch(options) {
+  const fetchImpl = options && typeof options.fetch === 'function'
+    ? options.fetch
+    : globalThis.fetch;
+  if (typeof fetchImpl !== 'function') throw new Error('Podcast audio fetch is unavailable');
+  return fetchImpl;
+}
+
 function clamp01(v) {
   return Math.max(0, Math.min(1, Number(v) || 0));
 }
@@ -448,7 +456,7 @@ async function decodePodcastDjEnergyRange(audioUrl, opts) {
       'Referer': 'https://music.163.com/',
     };
     if (opts.range) headers.Range = opts.range;
-    const resp = await fetch(audioUrl, { headers });
+    const resp = await podcastFetch(opts)(audioUrl, { headers });
     if (!resp.ok && resp.status !== 206) throw new Error('Audio fetch failed: ' + resp.status);
     if (!resp.body) throw new Error('Audio response has no body');
     const reader = resp.body.getReader();
@@ -494,6 +502,7 @@ async function analyzePodcastDjIntro(audioUrl, opts) {
     durationSec: introSec,
     userAgent: opts.userAgent,
     limitSec: introSec + 8,
+    fetch: opts.fetch,
   });
   const frameLimit = Math.max(1, Math.min(decoded.lowEnergy.length, Math.ceil((introSec + 2) / Math.max(0.001, decoded.hopSec || 0.010))));
   const lowEnergy = decoded.lowEnergy.slice(0, frameLimit);
@@ -524,7 +533,7 @@ async function analyzePodcastDjRangeSamples(audioUrl, opts) {
 
   let contentLength = 0;
   try {
-    const head = await fetch(audioUrl, {
+    const head = await podcastFetch(opts)(audioUrl, {
       method: 'HEAD',
       headers: {
         'User-Agent': opts.userAgent || DEFAULT_UA,
@@ -563,6 +572,7 @@ async function analyzePodcastDjRangeSamples(audioUrl, opts) {
       durationSec: sampleWindow,
       userAgent: opts.userAgent,
       range: 'bytes=' + startByte + '-' + endByte,
+      fetch: opts.fetch,
     });
     totalChunks += decoded.decode.chunks || 0;
     totalDecoded += decoded.decode.decodedSamples || 0;
@@ -818,7 +828,7 @@ async function analyzePodcastDjStreamFull(audioUrl, opts) {
   }
 
   try {
-    const resp = await fetch(audioUrl, {
+    const resp = await podcastFetch(opts)(audioUrl, {
       headers: {
         'User-Agent': opts.userAgent || DEFAULT_UA,
         'Referer': 'https://music.163.com/',

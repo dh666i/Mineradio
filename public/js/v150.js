@@ -29,6 +29,19 @@
     album: '专辑',
     playlist: '歌单',
   };
+  var ENTITY_SEARCH_PROVIDERS = ['netease', 'qq', 'kugou', 'qishui', 'spotify'];
+  var ENTITY_SEARCH_MATRIX = {
+    artist: ['netease', 'qq'],
+    album: ['netease', 'spotify'],
+    playlist: ENTITY_SEARCH_PROVIDERS.slice(),
+  };
+  var ENTITY_SEARCH_LIMITS = {
+    netease: 24,
+    qq: 18,
+    kugou: 18,
+    qishui: 18,
+    spotify: 18,
+  };
   var DISCOVER_SECTIONS = [
     { id: 'toplists', label: '排行榜', kind: 'playlist' },
     { id: 'new-songs', label: '新歌', kind: 'song' },
@@ -52,6 +65,9 @@
     hasMore: false,
     loading: false,
     token: 0,
+    providerPages: {},
+    sourceMode: 'song',
+    lastError: null,
   };
   var discoverState = {
     section: 'toplists',
@@ -128,13 +144,124 @@
     return String(window.searchMode || 'song');
   }
 
+  function supportsEntitySearch() {
+    var mode = currentMode();
+    return mode === 'song' || ENTITY_SEARCH_PROVIDERS.indexOf(mode) >= 0;
+  }
+
+  function searchTypeSupportedForMode(type, mode) {
+    mode = String(mode || currentMode());
+    if (type === 'all' || type === 'song') return supportsEntitySearch();
+    var providers = ENTITY_SEARCH_MATRIX[type] || [];
+    return mode === 'song' ? providers.length > 0 : providers.indexOf(mode) >= 0;
+  }
+
+  function providersForEntitySearch(type, mode) {
+    mode = String(mode || currentMode());
+    var supported = (ENTITY_SEARCH_MATRIX[type] || []).slice();
+    if (mode === 'song') return supported;
+    return supported.indexOf(mode) >= 0 ? [mode] : [];
+  }
+
+  function typedSearchUrl(provider, type, query, limit, offset) {
+    return '/api/search/typed?provider=' + encodeURIComponent(provider) +
+      '&keywords=' + encodeURIComponent(query) +
+      '&type=' + encodeURIComponent(type) +
+      '&limit=' + Math.max(1, finite(limit, 24)) +
+      '&offset=' + Math.max(0, finite(offset, 0));
+  }
+
+  function songSearchProviders(mode) {
+    mode = String(mode || currentMode());
+    if (ENTITY_SEARCH_PROVIDERS.indexOf(mode) >= 0) return [mode];
+    if (typeof window.musicSearchProviders === 'function') {
+      return window.musicSearchProviders(mode).filter(function (provider) {
+        return ENTITY_SEARCH_PROVIDERS.indexOf(provider) >= 0;
+      });
+    }
+    var providers = ['netease', 'qq', 'kugou', 'qishui'];
+    if (typeof window.hasPlatformLogin === 'function' && window.hasPlatformLogin('spotify')) {
+      providers.push('spotify');
+    }
+    return providers;
+  }
+
+  function songSearchUrl(provider, query, limit, offset) {
+    if (typeof window.musicSearchProviderUrl === 'function') {
+      return window.musicSearchProviderUrl(provider, query, limit, offset);
+    }
+    var suffix = '&limit=' + Math.max(1, finite(limit, 12)) + '&offset=' + Math.max(0, finite(offset, 0));
+    if (provider === 'qq') return '/api/qq/search?keywords=' + encodeURIComponent(query) + suffix;
+    if (provider === 'kugou') return '/api/kugou/search?keywords=' + encodeURIComponent(query) + suffix;
+    if (provider === 'qishui') return '/api/qishui/search?keywords=' + encodeURIComponent(query) + suffix;
+    if (provider === 'spotify') return '/api/spotify/search?keywords=' + encodeURIComponent(query) + suffix;
+    return '/api/search?keywords=' + encodeURIComponent(query) + suffix;
+  }
+
   function isNeteaseLoggedIn() {
     return !!(window.loginStatus && window.loginStatus.loggedIn);
+  }
+
+  function normalizePlaylistProvider(provider) {
+    provider = String(provider || '').toLowerCase();
+    return /^(netease|qq|kugou|qishui|spotify)$/.test(provider) ? provider : 'netease';
+  }
+
+  function parsePlaylistReference(value, provider) {
+    var raw = String(value || '');
+    var match = raw.match(/^(netease|qq|kugou|qishui|spotify):(.*)$/);
+    return {
+      provider: normalizePlaylistProvider(provider || (match && match[1])),
+      id: match ? match[2] : raw,
+    };
+  }
+
+  function playlistReference(provider, id) {
+    provider = normalizePlaylistProvider(provider);
+    return provider === 'netease' ? String(id || '') : provider + ':' + String(id || '');
+  }
+
+  function providerPlaylistEndpoint(provider, id, paging) {
+    provider = normalizePlaylistProvider(provider);
+    if (typeof window.playlistTracksEndpoint === 'function') {
+      return window.playlistTracksEndpoint(provider, id, paging);
+    }
+    var base = provider === 'netease'
+      ? '/api/playlist/tracks'
+      : '/api/' + provider + '/playlist/tracks';
+    var query = '?id=' + encodeURIComponent(id || '');
+    if (paging && paging.limit != null) query += '&limit=' + encodeURIComponent(paging.limit);
+    if (paging && paging.offset != null) query += '&offset=' + encodeURIComponent(paging.offset);
+    return base + query;
+  }
+
+  function providerPlaylistPageLimit(provider) {
+    provider = normalizePlaylistProvider(provider);
+    if (provider === 'netease') return 500;
+    if (provider === 'kugou' || provider === 'qishui') return 50;
+    if (provider === 'spotify') return 100;
+    return 500;
   }
 
   function coverOf(item) {
     item = item || {};
     return item.cover || item.picUrl || item.coverImgUrl || item.avatar || item.avatarUrl || '';
+  }
+
+  function providerOf(item) {
+    item = item || {};
+    return normalizePlaylistProvider(item.provider || item.source);
+  }
+
+  function providerLabel(provider) {
+    provider = normalizePlaylistProvider(provider);
+    return {
+      netease: '网易云',
+      qq: 'QQ 音乐',
+      kugou: '酷狗音乐',
+      qishui: '汽水音乐',
+      spotify: 'Spotify',
+    }[provider] || '网易云';
   }
 
   function creatorName(item) {
@@ -185,6 +312,22 @@
     error.authRequired = payload.loggedIn === false || error.status === 401 ||
       normalizedCode === '301' || normalizedCode === '401' ||
       normalizedCode === 'LOGIN_REQUIRED' || normalizedCode === 'LOGIN_EXPIRED' || normalizedCode === 'AUTH_EXPIRED';
+    return error;
+  }
+
+  function playlistPayloadError(provider, payload, fallback) {
+    provider = normalizePlaylistProvider(provider);
+    if (provider === 'netease') return apiError(payload, fallback);
+    if (payload && !payload.error && payload.ok !== false && payload.loggedIn !== false) return null;
+    var error = new Error(
+      payload && (payload.message || payload.errorReason || payload.error) ||
+      fallback ||
+      '歌单加载失败'
+    );
+    error.code = payload && (payload.errorCode || payload.code || payload.error) || '';
+    error.status = finite(payload && (payload.status || payload.statusCode), 0);
+    error.payload = payload || null;
+    error.authRequired = !!(payload && payload.loggedIn === false) || error.status === 401;
     return error;
   }
 
@@ -270,7 +413,8 @@
       '#v150-search-types button{height:25px;padding:0 11px;border:0;border-radius:5px;background:transparent;color:rgba(255,255,255,.43);font:650 10.5px/1 inherit;cursor:pointer}',
       '#v150-search-types button:hover,#v150-search-types button:focus-visible{color:#fff;background:rgba(255,255,255,.06)}',
       '#v150-search-types button.active{color:#fff;background:rgba(var(--fc-accent-rgb),.13);box-shadow:inset 0 0 0 1px rgba(var(--fc-accent-rgb),.25)}',
-      'body.empty-home-active.diy-mode #v150-search-types{display:none}',
+      '#v150-search-types button:disabled{color:rgba(255,255,255,.18);background:transparent;box-shadow:none;cursor:not-allowed}',
+      'body.empty-home-active.diy-mode #search-area:not(.has-results) #v150-search-types{display:none}',
       '.v150-entity-toolbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;min-height:42px;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(10,13,16,.94);backdrop-filter:blur(18px)}',
       '.v150-entity-toolbar strong{font-size:11px;color:rgba(255,255,255,.82)}',
       '.v150-entity-toolbar span{font-size:10px;color:rgba(255,255,255,.36)}',
@@ -381,7 +525,7 @@
       var types = document.createElement('div');
       types.id = 'v150-search-types';
       types.setAttribute('role', 'tablist');
-      types.setAttribute('aria-label', '网易云搜索类型');
+      types.setAttribute('aria-label', '音乐搜索类型');
       types.innerHTML = SEARCH_TYPES.map(function (type) {
         return '<button type="button" role="tab" data-v150-search-type="' + type + '" aria-selected="' +
           (type === typedSearch.type ? 'true' : 'false') + '">' + SEARCH_TYPE_LABELS[type] + '</button>';
@@ -471,14 +615,22 @@
   function syncSearchTypeUi() {
     var root = byId('v150-search-types');
     if (!root) return;
-    var visible = currentMode() === 'netease';
+    var visible = supportsEntitySearch();
+    if (visible && !searchTypeSupportedForMode(typedSearch.type, currentMode())) {
+      typedSearch.type = 'all';
+      resetTypedSearch(true);
+    }
     root.classList.toggle('show', visible);
     root.setAttribute('aria-hidden', visible ? 'false' : 'true');
     all('[data-v150-search-type]', root).forEach(function (button) {
-      var active = button.getAttribute('data-v150-search-type') === typedSearch.type;
+      var type = button.getAttribute('data-v150-search-type');
+      var active = type === typedSearch.type;
+      var supported = visible && searchTypeSupportedForMode(type, currentMode());
       button.classList.toggle('active', active);
       button.setAttribute('aria-selected', active ? 'true' : 'false');
-      button.tabIndex = visible && active ? 0 : -1;
+      button.disabled = !supported;
+      button.setAttribute('aria-disabled', supported ? 'false' : 'true');
+      button.tabIndex = supported && active ? 0 : -1;
     });
   }
 
@@ -491,6 +643,9 @@
     typedSearch.total = 0;
     typedSearch.hasMore = false;
     typedSearch.loading = false;
+    typedSearch.providerPages = {};
+    typedSearch.sourceMode = currentMode();
+    typedSearch.lastError = null;
     if (clearQuery) typedSearch.query = '';
   }
 
@@ -519,13 +674,17 @@
 
   function entityCardMarkup(item, type, index, comprehensive) {
     var cover = coverOf(item);
-    var coverMarkup = cover
-      ? '<img class="v150-entity-cover" src="' + html(cover) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
+    var coverAttr = cover && typeof window.safeImageAttr === 'function'
+      ? window.safeImageAttr(cover)
+      : html(cover);
+    var provider = providerOf(item);
+    var coverMarkup = coverAttr
+      ? '<img class="v150-entity-cover" src="' + coverAttr + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
       : '<span class="v150-entity-cover"></span>';
     var attribute = comprehensive
       ? ' data-v150-comprehensive-type="' + type + '" data-v150-comprehensive-index="' + index + '"'
       : ' data-v150-typed-index="' + index + '"';
-    return '<button class="v150-entity-card ' + type + '" type="button"' + attribute + '>' +
+    return '<button class="v150-entity-card ' + type + ' ' + provider + '-source" type="button"' + attribute + '>' +
       coverMarkup +
       '<span class="v150-entity-copy"><span class="v150-entity-name">' + html(item.name || item.title || '未命名') + '</span>' +
       '<span class="v150-entity-meta">' + html(typedEntityMeta(item, type)) + '</span></span>' +
@@ -533,17 +692,19 @@
   }
 
   function typedEntityMeta(item, type) {
+    var source = providerLabel(providerOf(item));
     if (type === 'artist') {
-      var artistBits = [];
+      var artistBits = [source];
       if (item.albumCount || item.albumSize) artistBits.push((item.albumCount || item.albumSize) + ' 张专辑');
       if (item.musicCount || item.musicSize) artistBits.push((item.musicCount || item.musicSize) + ' 首歌曲');
       if (Array.isArray(item.alias) && item.alias.length) artistBits.push(item.alias[0]);
-      return artistBits.join(' · ') || '网易云歌手';
+      return artistBits.join(' · ');
     }
     if (type === 'album') {
-      return [artistName(item), formatDate(item.publishTime), item.songCount ? item.songCount + ' 首' : ''].filter(Boolean).join(' · ');
+      return [source, artistName(item), formatDate(item.publishTime || item.releaseTime), item.songCount || item.trackCount ? (item.songCount || item.trackCount) + ' 首' : ''].filter(Boolean).join(' · ');
     }
     return [
+      source,
       creatorName(item),
       item.trackCount ? item.trackCount + ' 首' : '',
       item.playCount ? formatCount(item.playCount) + ' 次播放' : '',
@@ -580,7 +741,13 @@
     var cards = typedSearch.items.map(function (item, index) {
       return entityCardMarkup(item, type, index, false);
     }).join('');
+    var warning = typedSearch.partialFailures.length
+      ? '<div class="search-state search-partial-warning"><strong>' +
+        html(typedSearch.partialFailures.join('、') + '暂时不可用') +
+        '</strong><span>已保留其他平台的结果，加载更多时会继续重试</span></div>'
+      : '';
     results.innerHTML =
+      warning +
       '<div class="v150-entity-toolbar"><strong>' + SEARCH_TYPE_LABELS[type] + '</strong><span>' + countLabel + ' 条结果</span></div>' +
       '<div class="v150-entity-grid" role="list">' + cards + '</div>' +
       (typedSearch.hasMore
@@ -606,17 +773,21 @@
     return '<div class="v150-comprehensive-head"><strong>' + SEARCH_TYPE_LABELS[type] + '</strong>' +
       '<span>' + count + ' 条</span>' +
       (type === 'song' && section.items.length ? '<button type="button" data-v150-play-comprehensive="1">播放全部</button>' : '') +
-      '<button type="button" data-v150-view-type="' + type + '">查看全部</button></div>';
+      (section.unsupported ? '' : '<button type="button" data-v150-view-type="' + type + '">查看全部</button>') +
+      '</div>';
   }
 
   function comprehensiveSongMarkup(song, index) {
     var cover = coverOf(song);
-    var image = cover
-      ? '<img src="' + html(cover) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
+    var coverAttr = cover && typeof window.safeImageAttr === 'function'
+      ? window.safeImageAttr(cover)
+      : html(cover);
+    var image = coverAttr
+      ? '<img src="' + coverAttr + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
       : '<span class="v150-song-placeholder"></span>';
     return '<button class="v150-comprehensive-song" type="button" data-v150-comprehensive-type="song" data-v150-comprehensive-index="' + index + '">' +
       image + '<span class="v150-comprehensive-song-copy"><strong>' + html(song.name || song.title || '未命名') + '</strong>' +
-      '<span>' + html([artistName(song), song.album || ''].filter(Boolean).join(' · ') || '网易云音乐') + '</span></span>' +
+      '<span>' + html([providerLabel(providerOf(song)), artistName(song), song.album || ''].filter(Boolean).join(' · ')) + '</span></span>' +
       '<span class="v150-comprehensive-play" aria-hidden="true">▶</span></button>';
   }
 
@@ -636,7 +807,9 @@
     var sections = order.map(function (type) {
       var section = comprehensiveSection(type);
       var body = '';
-      if (section.items.length) {
+      if (section.unsupported) {
+        body = '<div class="v150-comprehensive-empty">当前平台暂不支持此分类</div>';
+      } else if (section.items.length) {
         body = type === 'song'
           ? '<div class="v150-comprehensive-songs">' + section.items.map(comprehensiveSongMarkup).join('') + '</div>'
           : '<div class="v150-entity-grid">' + section.items.map(function (item, index) {
@@ -655,65 +828,192 @@
     results.classList.add('show');
   }
 
+  function searchAuthRequired(error) {
+    var payload = error && error.payload || {};
+    return !!(error && (error.authRequired || error.status === 401)) ||
+      payload.requiresLogin === true || payload.loggedIn === false;
+  }
+
+  function searchErrorText(error, provider, fallback) {
+    var code = String(error && (error.code || error.message) || '').toUpperCase();
+    if (searchAuthRequired(error)) {
+      return providerLabel(provider) + '尚未登录或登录状态已失效';
+    }
+    if (code.indexOf('SEARCH_TYPE_UNSUPPORTED') >= 0) {
+      return providerLabel(provider) + '暂不支持此分类';
+    }
+    return errorText(error, fallback || providerLabel(provider) + '搜索失败');
+  }
+
+  function normalizeProviderItems(items, provider) {
+    return (items || []).map(function (item) {
+      return Object.assign({}, item || {}, {
+        provider: normalizePlaylistProvider(item && (item.provider || item.source) || provider),
+        source: normalizePlaylistProvider(item && (item.provider || item.source) || provider),
+      });
+    });
+  }
+
+  function mergeProviderEntities(existing, incoming, type) {
+    return experience.mergeUnique(existing || [], incoming || [], function (item) {
+      return providerOf(item) + ':' + type + ':' + experience.itemIdentity(item);
+    });
+  }
+
+  async function fetchComprehensiveSongSection(query, limit, sourceMode) {
+    var providers = songSearchProviders(sourceMode);
+    var perProviderLimit = providers.length > 1 ? Math.max(6, Math.ceil(limit / providers.length) + 4) : limit;
+    var settled = await Promise.allSettled(providers.map(function (provider) {
+      return window.apiJson(songSearchUrl(provider, query, perProviderLimit, 0));
+    }));
+    var pools = { netease: [], qq: [], kugou: [], qishui: [], spotify: [] };
+    var failures = [];
+    var firstError = null;
+    var succeeded = 0;
+    var total = 0;
+    var hasMore = false;
+    settled.forEach(function (result, index) {
+      var provider = providers[index];
+      var payload = result.status === 'fulfilled' ? result.value : null;
+      var failure = result.status === 'rejected' ? result.reason : apiError(payload, providerLabel(provider) + '搜索失败');
+      if (failure) {
+        if (!firstError) firstError = failure;
+        if (!(sourceMode === 'song' && searchAuthRequired(failure))) failures.push(providerLabel(provider));
+        return;
+      }
+      succeeded += 1;
+      pools[provider] = normalizeProviderItems(
+        payload && (payload.songs || payload.items || payload.results) || [],
+        provider
+      );
+      total += Math.max(pools[provider].length, finite(payload && payload.total, pools[provider].length));
+      hasMore = hasMore || !!(payload && (payload.hasMore || payload.more));
+    });
+    if (!succeeded && firstError) throw firstError;
+    var merged = typeof window.mergeSongSearchResults === 'function'
+      ? window.mergeSongSearchResults(
+          pools.netease,
+          pools.qq,
+          pools.kugou,
+          pools.qishui,
+          pools.spotify,
+          limit,
+          query
+        )
+      : [].concat(pools.netease, pools.qq, pools.kugou, pools.qishui, pools.spotify).slice(0, limit);
+    return {
+      items: merged,
+      total: Math.max(merged.length, total),
+      nextOffset: merged.length,
+      hasMore: hasMore || total > merged.length,
+      failed: false,
+      failures: failures,
+    };
+  }
+
+  async function fetchComprehensiveEntitySection(query, type, limit, sourceMode) {
+    var providers = providersForEntitySearch(type, sourceMode);
+    if (!providers.length) {
+      return {
+        items: [],
+        total: 0,
+        nextOffset: 0,
+        hasMore: false,
+        failed: false,
+        unsupported: true,
+        failures: [],
+      };
+    }
+    var settled = await Promise.allSettled(providers.map(function (provider) {
+      return window.apiJson(typedSearchUrl(provider, type, query, limit, 0));
+    }));
+    var items = [];
+    var total = 0;
+    var hasMore = false;
+    var failures = [];
+    var firstError = null;
+    var succeeded = 0;
+    settled.forEach(function (result, index) {
+      var provider = providers[index];
+      var payload = result.status === 'fulfilled' ? result.value : null;
+      var failure = result.status === 'rejected' ? result.reason : apiError(payload, providerLabel(provider) + '搜索失败');
+      if (failure) {
+        if (!firstError) firstError = failure;
+        if (!(sourceMode === 'song' && searchAuthRequired(failure))) failures.push(providerLabel(provider));
+        return;
+      }
+      succeeded += 1;
+      var incoming = normalizeProviderItems(typedPayloadItems(payload, type), provider);
+      items = mergeProviderEntities(items, incoming, type);
+      total += Math.max(incoming.length, finite(payload && payload.total, incoming.length));
+      hasMore = hasMore || !!(payload && (payload.hasMore || payload.more));
+    });
+    if (!succeeded && firstError) throw firstError;
+    return {
+      items: items,
+      total: Math.max(items.length, total),
+      nextOffset: items.length,
+      hasMore: hasMore || total > items.length,
+      failed: false,
+      failures: failures,
+    };
+  }
+
   async function runComprehensiveSearch(query) {
     query = String(query || '').trim();
     if (!query) return;
-    if (typedSearch.query !== query) {
+    var sourceMode = currentMode();
+    if (typedSearch.query !== query || typedSearch.sourceMode !== sourceMode) {
       resetTypedSearch(false);
       typedSearch.query = query;
+      typedSearch.sourceMode = sourceMode;
     }
     if (typedSearch.loading) return;
     typedSearch.loading = true;
     var token = ++typedSearch.token;
     renderTypedSearch();
     var requests = [
-      { type: 'song', label: '单曲', limit: 8, keys: ['songs', 'items'], url: '/api/search?keywords=' + encodeURIComponent(query) + '&limit=8&offset=0' },
-      { type: 'artist', label: '歌手', limit: 6, keys: ['artists', 'items'], url: '/api/search/typed?keywords=' + encodeURIComponent(query) + '&type=artist&limit=6&offset=0' },
-      { type: 'album', label: '专辑', limit: 6, keys: ['albums', 'items'], url: '/api/search/typed?keywords=' + encodeURIComponent(query) + '&type=album&limit=6&offset=0' },
-      { type: 'playlist', label: '歌单', limit: 6, keys: ['playlists', 'items'], url: '/api/search/typed?keywords=' + encodeURIComponent(query) + '&type=playlist&limit=6&offset=0' },
+      { type: 'song', label: '单曲', promise: fetchComprehensiveSongSection(query, 8, sourceMode) },
+      { type: 'artist', label: '歌手', promise: fetchComprehensiveEntitySection(query, 'artist', 6, sourceMode) },
+      { type: 'album', label: '专辑', promise: fetchComprehensiveEntitySection(query, 'album', 6, sourceMode) },
+      { type: 'playlist', label: '歌单', promise: fetchComprehensiveEntitySection(query, 'playlist', 6, sourceMode) },
     ];
     try {
-      var settled = await Promise.allSettled(requests.map(function (request) {
-        return window.apiJson(request.url);
-      }));
-      if (token !== typedSearch.token || currentMode() !== 'netease' || typedSearch.type !== 'all') return;
+      var settled = await Promise.allSettled(requests.map(function (request) { return request.promise; }));
+      if (
+        token !== typedSearch.token ||
+        !supportsEntitySearch() ||
+        typedSearch.type !== 'all' ||
+        currentMode() !== sourceMode
+      ) return;
       var sections = {};
       var failures = [];
       var firstError = null;
+      var failedSections = 0;
+      var successfulSupportedSections = 0;
       requests.forEach(function (request, index) {
         var result = settled[index];
-        var payload = result.status === 'fulfilled' ? result.value : null;
-        var payloadFailure = payload && apiError(payload, request.label + '搜索失败');
-        var failed = result.status === 'rejected' || !!payloadFailure;
-        var error = result.status === 'rejected' ? result.reason : payloadFailure;
+        var section = result.status === 'fulfilled' ? result.value : null;
+        var failed = result.status === 'rejected';
+        var error = failed ? result.reason : null;
         if (failed) {
+          failedSections += 1;
           failures.push(request.label);
           if (!firstError) firstError = error;
         }
-        var items = failed ? [] : experience.pageItems(payload, request.keys);
-        var total = failed ? 0 : experience.pageTotal(payload, items.length);
-        var responseLimit = Math.max(1, finite(payload && payload.limit, request.limit));
-        var responseOffset = Math.max(0, finite(payload && payload.offset, 0));
-        var nextOffset = failed
-          ? 0
-          : finite(payload && payload.nextOffset, responseOffset + responseLimit);
-        sections[request.type] = {
-          items: items,
-          total: total,
-          nextOffset: nextOffset,
-          hasMore: !failed && experience.pageHasMore(
-            payload,
-            nextOffset,
-            total,
-            items.length,
-            responseLimit
-          ),
-          failed: failed,
-        };
+        sections[request.type] = failed
+          ? { items: [], total: 0, nextOffset: 0, hasMore: false, failed: true }
+          : section;
+        if (!failed && section && !section.unsupported) successfulSupportedSections += 1;
+        if (section && Array.isArray(section.failures)) failures.push.apply(failures, section.failures);
       });
-      if (failures.length === requests.length) throw firstError || new Error('综合搜索失败');
+      if (failedSections === requests.length || (!successfulSupportedSections && firstError)) {
+        throw firstError || new Error('综合搜索失败');
+      }
       typedSearch.sections = sections;
-      typedSearch.partialFailures = failures;
+      typedSearch.partialFailures = failures.filter(function (label, index, list) {
+        return label && list.indexOf(label) === index;
+      });
       typedSearch.items = sections.song.items.slice();
       typedSearch.total = requests.reduce(function (total, request) {
         return total + (sections[request.type].total || 0);
@@ -723,10 +1023,14 @@
       if (typeof window.rememberSearchQuery === 'function') window.rememberSearchQuery(query);
       renderTypedSearch();
     } catch (error) {
-      if (token !== typedSearch.token) return;
+      if (token !== typedSearch.token || currentMode() !== sourceMode) return;
       var results = byId('search-results');
       if (results) {
-        results.innerHTML = typedStateMarkup('综合搜索失败', errorText(error), true);
+        results.innerHTML = typedStateMarkup(
+          '综合搜索失败',
+          sourceMode === 'song' ? errorText(error) : searchErrorText(error, sourceMode),
+          true
+        );
         results.classList.add('show');
       }
     } finally {
@@ -740,11 +1044,47 @@
     var type = typedSearch.type;
     if (type === 'all') return runComprehensiveSearch(query);
     if (type === 'song') return legacy.doSearch(query);
-    if (!append || typedSearch.query !== query) {
+    var sourceMode = currentMode();
+    var providers = providersForEntitySearch(type, sourceMode);
+    if (!providers.length) {
       resetTypedSearch(false);
       typedSearch.query = query;
+      typedSearch.sourceMode = sourceMode;
+      var unsupportedResults = byId('search-results');
+      if (unsupportedResults) {
+        unsupportedResults.innerHTML = typedStateMarkup(
+          providerLabel(sourceMode) + '暂不支持' + SEARCH_TYPE_LABELS[type] + '搜索',
+          '可切换到综合搜索查看其他平台结果',
+          false
+        );
+        unsupportedResults.classList.add('show');
+      }
+      return;
+    }
+    if (!append || typedSearch.query !== query || typedSearch.sourceMode !== sourceMode) {
+      resetTypedSearch(false);
+      typedSearch.query = query;
+      typedSearch.sourceMode = sourceMode;
+      providers.forEach(function (provider) {
+        typedSearch.providerPages[provider] = {
+          offset: 0,
+          nextOffset: 0,
+          hasMore: true,
+          total: 0,
+          failed: false,
+        };
+      });
     }
     if (typedSearch.loading) return;
+    var requestProviders = providers.filter(function (provider) {
+      var page = typedSearch.providerPages[provider];
+      return !page || page.hasMore !== false;
+    });
+    if (!requestProviders.length) {
+      typedSearch.hasMore = false;
+      renderTypedSearch();
+      return;
+    }
     typedSearch.loading = true;
     var token = ++typedSearch.token;
     if (!append) renderTypedSearch();
@@ -753,35 +1093,83 @@
       if (more) { more.disabled = true; more.textContent = '正在加载'; }
     }
     try {
-      var limit = 24;
-      var payload = await window.apiJson(
-        '/api/search/typed?keywords=' + encodeURIComponent(query) +
-        '&type=' + encodeURIComponent(type) +
-        '&limit=' + limit +
-        '&offset=' + typedSearch.offset
-      );
-      var payloadError = apiError(payload, '搜索失败');
-      if (payloadError) throw payloadError;
-      if (token !== typedSearch.token || currentMode() !== 'netease' || typedSearch.type !== type) return;
-      var incoming = typedPayloadItems(payload, type);
-      var responseLimit = Math.max(1, finite(payload.limit, limit));
-      var responseOffset = Math.max(0, finite(payload.offset, typedSearch.offset));
-      typedSearch.items = experience.mergeUnique(append ? typedSearch.items : [], incoming, function (item) {
-        return type + ':' + experience.itemIdentity(item);
+      var settled = await Promise.allSettled(requestProviders.map(function (provider) {
+        var page = typedSearch.providerPages[provider] || {};
+        var offset = Math.max(0, finite(page.nextOffset, finite(page.offset, 0)));
+        var limit = sourceMode === 'song' ? (ENTITY_SEARCH_LIMITS[provider] || 18) : 24;
+        return window.apiJson(typedSearchUrl(provider, type, query, limit, offset)).then(function (payload) {
+          var payloadError = apiError(payload, providerLabel(provider) + '搜索失败');
+          if (payloadError) throw payloadError;
+          return { provider: provider, payload: payload || {}, offset: offset, limit: limit };
+        });
+      }));
+      if (
+        token !== typedSearch.token ||
+        !supportsEntitySearch() ||
+        typedSearch.type !== type ||
+        currentMode() !== sourceMode
+      ) return;
+      var incomingItems = [];
+      var failures = [];
+      var firstError = null;
+      var succeeded = 0;
+      settled.forEach(function (result, index) {
+        var provider = requestProviders[index];
+        var previous = typedSearch.providerPages[provider] || {};
+        if (result.status !== 'fulfilled') {
+          var error = result.reason;
+          if (!firstError) firstError = error;
+          var authFailure = searchAuthRequired(error);
+          if (!(sourceMode === 'song' && authFailure)) failures.push(providerLabel(provider));
+          typedSearch.providerPages[provider] = Object.assign({}, previous, {
+            failed: true,
+            hasMore: authFailure ? false : previous.hasMore !== false,
+          });
+          return;
+        }
+        succeeded += 1;
+        var response = result.value;
+        var payload = response.payload;
+        var incoming = normalizeProviderItems(typedPayloadItems(payload, type), provider);
+        incomingItems = mergeProviderEntities(incomingItems, incoming, type);
+        var responseLimit = Math.max(1, finite(payload.limit, response.limit));
+        var responseOffset = Math.max(0, finite(payload.offset, response.offset));
+        var nextOffset = finite(
+          payload.nextOffset,
+          responseOffset + (incoming.length < responseLimit ? incoming.length : responseLimit)
+        );
+        if (nextOffset <= responseOffset && incoming.length) nextOffset = responseOffset + incoming.length;
+        var total = experience.pageTotal(payload, incoming.length);
+        var hasMore = experience.pageHasMore(payload, nextOffset, total, incoming.length, responseLimit);
+        if (!incoming.length || nextOffset <= responseOffset) hasMore = false;
+        typedSearch.providerPages[provider] = {
+          offset: responseOffset,
+          nextOffset: nextOffset,
+          hasMore: hasMore,
+          total: total,
+          failed: false,
+        };
       });
-      typedSearch.total = experience.pageTotal(payload, typedSearch.items.length);
-      typedSearch.offset = finite(payload.nextOffset, responseOffset + (incoming.length < responseLimit ? incoming.length : responseLimit));
-      typedSearch.hasMore = experience.pageHasMore(
-        payload,
-        typedSearch.offset,
-        typedSearch.total,
-        incoming.length,
-        responseLimit
-      );
+      if (!succeeded && firstError) throw firstError;
+      typedSearch.items = mergeProviderEntities(append ? typedSearch.items : [], incomingItems, type);
+      typedSearch.partialFailures = failures.filter(function (label, index, list) {
+        return label && list.indexOf(label) === index;
+      });
+      typedSearch.total = providers.reduce(function (total, provider) {
+        var page = typedSearch.providerPages[provider] || {};
+        return total + Math.max(0, finite(page.total, 0));
+      }, 0);
+      typedSearch.offset = providers.reduce(function (offset, provider) {
+        return Math.max(offset, finite(typedSearch.providerPages[provider] && typedSearch.providerPages[provider].nextOffset, 0));
+      }, 0);
+      typedSearch.hasMore = providers.some(function (provider) {
+        return typedSearch.providerPages[provider] && typedSearch.providerPages[provider].hasMore;
+      });
       if (typeof window.rememberSearchQuery === 'function') window.rememberSearchQuery(query);
       renderTypedSearch();
     } catch (error) {
-      if (token !== typedSearch.token) return;
+      if (token !== typedSearch.token || currentMode() !== sourceMode) return;
+      typedSearch.lastError = error;
       var results = byId('search-results');
       if (append && typedSearch.items.length) {
         renderTypedSearch();
@@ -789,7 +1177,8 @@
           results.insertAdjacentHTML('beforeend', typedStateMarkup('加载失败', errorText(error), true));
         }
       } else if (results) {
-        results.innerHTML = typedStateMarkup('搜索失败', errorText(error), true);
+        var failedProvider = requestProviders.length === 1 ? requestProviders[0] : sourceMode;
+        results.innerHTML = typedStateMarkup('搜索失败', searchErrorText(error, failedProvider), true);
         results.classList.add('show');
       }
     } finally {
@@ -800,22 +1189,32 @@
   function openTypedItem(item, type) {
     if (!item) return;
     if (type === 'song') return;
+    var provider = providerOf(item);
     if (type === 'artist') {
       if (typeof window.openArtistDetailForSong === 'function') {
+        var artistMid = provider === 'qq' ? String(item.mid || item.artistMid || item.id || '') : '';
+        var artistId = provider === 'netease' ? String(item.id || item.artistId || '') : '';
+        if (!artistId && !artistMid) {
+          if (typeof window.showToast === 'function') window.showToast(providerLabel(provider) + '暂不支持打开该歌手详情');
+          return;
+        }
         window.openArtistDetailForSong({
           id: 'artist:' + String(item.id || ''),
-          artistId: item.id,
+          artistId: artistId,
+          artistMid: artistMid,
           artist: item.name || '',
-          artists: [{ id: item.id, name: item.name || '' }],
-          provider: 'netease',
-          source: 'netease',
+          artists: artistMid
+            ? [{ mid: artistMid, name: item.name || '' }]
+            : [{ id: artistId, name: item.name || '' }],
+          provider: provider,
+          source: provider,
           cover: coverOf(item),
         });
       }
     } else if (type === 'album') {
       if (typeof window.openAlbumDetail === 'function') window.openAlbumDetail(item);
     } else if (type === 'playlist') {
-      openNeteasePlaylistDetail(item);
+      openProviderPlaylistDetail(item);
     }
     var results = byId('search-results');
     if (results) results.classList.remove('show');
@@ -835,6 +1234,32 @@
       return;
     }
     openTypedItem(item, type);
+  }
+
+  async function playAllComprehensiveSearchSongs() {
+    var query = String(typedSearch.query || '').trim();
+    var section = comprehensiveSection('song');
+    if (!query || !section.items.length) return;
+    var sourceMode = currentMode();
+    var token = ++searchPlayAllToken;
+    typedSearch.type = 'song';
+    resetTypedSearch(false);
+    typedSearch.query = query;
+    syncSearchTypeUi();
+    try {
+      await legacy.doSearch(query);
+      var currentQuery = String(byId('search-input') && byId('search-input').value || '').trim();
+      if (token !== searchPlayAllToken || currentMode() !== sourceMode || currentQuery !== query) return;
+      return legacy.playAllSearchResults();
+    } catch (error) {
+      var fallbackQuery = String(byId('search-input') && byId('search-input').value || '').trim();
+      if (token !== searchPlayAllToken || currentMode() !== sourceMode || fallbackQuery !== query) return;
+      window.playlist = section.items.map(clone);
+      if (typeof window.showToast === 'function') {
+        window.showToast('完整搜索加载失败，先播放当前 ' + section.items.length + ' 首');
+      }
+      return legacy.playAllSearchResults();
+    }
   }
 
   async function playAllNeteaseSearchResults(options) {
@@ -992,6 +1417,9 @@
 
   function browseCardMarkup(item, index, kind) {
     var cover = coverOf(item);
+    var coverAttr = cover && typeof window.safeImageAttr === 'function'
+      ? window.safeImageAttr(cover)
+      : '';
     var meta = kind === 'artist'
       ? [
           item.albumCount ? item.albumCount + ' 张专辑' : '',
@@ -1005,8 +1433,8 @@
           item.playCount ? formatCount(item.playCount) + ' 播放' : '',
         ].filter(Boolean).join(' · '));
     return '<button class="v150-browse-card ' + kind + '" type="button" data-v150-browse-index="' + index + '">' +
-      (cover
-        ? '<img class="v150-browse-cover" src="' + html(cover) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
+      (coverAttr
+        ? '<img class="v150-browse-cover" src="' + coverAttr + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
         : '<span class="v150-browse-cover"></span>') +
       '<span class="v150-browse-name">' + html(item.name || item.title || '未命名') + '</span>' +
       '<span class="v150-browse-meta">' + html(meta || '网易云音乐') + '</span></button>';
@@ -1015,10 +1443,13 @@
   function songRowsMarkup(items, prefix) {
     return '<div class="v150-song-list" role="list">' + items.map(function (song, index) {
       var cover = coverOf(song);
+      var coverAttr = cover && typeof window.safeImageAttr === 'function'
+        ? window.safeImageAttr(cover)
+        : '';
       return '<div class="v150-song-row" role="listitem">' +
         '<span class="v150-song-index">' + String(index + 1).padStart(2, '0') + '</span>' +
-        (cover
-          ? '<img class="v150-song-cover" src="' + html(cover) + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
+        (coverAttr
+          ? '<img class="v150-song-cover" src="' + coverAttr + '" alt="" loading="lazy" decoding="async" onerror="this.style.opacity=.2">'
           : '<span class="v150-song-cover"></span>') +
         '<button class="v150-song-main" type="button" data-v150-song-index="' + index + '" data-v150-song-source="' + prefix + '">' +
           '<span class="v150-song-name">' + html(song.name || song.title || '未知歌曲') + '</span>' +
@@ -1201,7 +1632,7 @@
         }, 170);
       }
     } else if (kind === 'playlist') {
-      openNeteasePlaylistDetail(item);
+      openProviderPlaylistDetail(item);
     }
   }
 
@@ -1231,31 +1662,42 @@
     if (typeof window.showToast === 'function') window.showToast('已设为下一首: ' + (song.name || '歌曲'));
   }
 
-  async function fetchCompletePlaylist(pid, options) {
+  async function fetchCompletePlaylist(provider, pid, options) {
+    provider = normalizePlaylistProvider(provider);
     options = options || {};
     var total = Math.max(0, finite(options.total, 0));
     var playlistInfo = options.playlist || null;
     var result = await experience.collectPaged(function (page) {
-      return window.apiJson(
-        '/api/playlist/tracks?id=' + encodeURIComponent(pid) +
-        '&limit=' + page.limit +
-        '&offset=' + page.offset
-      ).then(function (payload) {
-        var payloadError = apiError(payload, '歌单加载失败');
+      return window.apiJson(providerPlaylistEndpoint(provider, pid, page)).then(function (payload) {
+        var payloadError = playlistPayloadError(provider, payload, '歌单加载失败');
         if (payloadError) throw payloadError;
         if (payload.playlist) {
-          playlistInfo = Object.assign({}, playlistInfo || {}, payload.playlist);
+          playlistInfo = Object.assign({}, playlistInfo || {}, payload.playlist, {
+            provider: provider,
+            source: provider,
+          });
         }
         return payload;
       });
     }, {
-      limit: 500,
+      limit: providerPlaylistPageLimit(provider),
       maxItems: 10000,
       maxPages: 80,
       total: total,
       hasMore: true,
       keys: ['tracks'],
       key: itemKey,
+      getHasMore: provider === 'qq'
+        ? function () { return false; }
+        : function (payload, page) {
+            return experience.pageHasMore(
+              payload,
+              page.nextOffset,
+              page.total,
+              page.rawCount,
+              page.limit
+            );
+          },
       onPage: function (progress) {
         if (typeof options.onPage === 'function') {
           return options.onPage(progress, playlistInfo);
@@ -1274,13 +1716,14 @@
     var creatorId = item.creatorId || creator.userId || creator.id;
     if (accountId && creatorId) return String(accountId) === String(creatorId);
     var cached = (window.userPlaylists || []).find(function (playlist) {
-      return playlist && playlist.provider !== 'qq' && String(playlist.id) === pid;
+      return playlist && (playlist.provider || 'netease') === 'netease' && String(playlist.id) === pid;
     });
     return !!(cached && !cached.subscribed && finite(cached.specialType, 0) === 0);
   }
 
   function playlistActionMarkup(item) {
     item = item || {};
+    if (providerOf(item) !== 'netease') return '';
     var pid = String(item.id || '');
     var owner = isOwnedPlaylist(item, pid);
     var special = finite(item.specialType, 0) !== 0;
@@ -1321,7 +1764,7 @@
     body.innerHTML =
       '<section class="v150-playlist-hero">' +
         (cover
-          ? '<img class="v150-playlist-cover" src="' + html(cover) + '" alt="" onerror="this.style.opacity=.2">'
+          ? '<img class="v150-playlist-cover" src="' + (typeof window.safeImageAttr === 'function' ? window.safeImageAttr(cover) : html(cover)) + '" alt="" onerror="this.style.opacity=.2">'
           : '<span class="v150-playlist-cover"></span>') +
         '<div class="v150-playlist-copy"><div class="v150-playlist-title">' + html(item.name || '歌单') + '</div>' +
           '<div class="v150-playlist-meta">' + html([
@@ -1343,7 +1786,7 @@
         : '');
   }
 
-  async function openNeteasePlaylistDetail(itemOrId) {
+  async function openProviderPlaylistDetail(itemOrId) {
     var item = itemOrId && typeof itemOrId === 'object'
       ? Object.assign({}, itemOrId)
       : { id: itemOrId, name: '歌单详情' };
@@ -1351,6 +1794,9 @@
       if (typeof window.showToast === 'function') window.showToast('未找到歌单信息');
       return;
     }
+    var provider = providerOf(item);
+    item.provider = provider;
+    item.source = provider;
     var mask = ensureDiscoverModal();
     if (!mask.classList.contains('show')) window.openGsapModal(mask);
     var token = ++discoverPlaylist.token;
@@ -1363,7 +1809,7 @@
     discoverPlaylist.visible = 120;
     renderDiscoverPlaylistDetail();
     try {
-      var result = await fetchCompletePlaylist(item.id, {
+      var result = await fetchCompletePlaylist(provider, item.id, {
         total: discoverPlaylist.total,
         playlist: item,
         onPage: function (progress, playlistInfo) {
@@ -1404,7 +1850,8 @@
       }
     }
   }
-  window.openNeteasePlaylistDetail = openNeteasePlaylistDetail;
+  window.openProviderPlaylistDetail = openProviderPlaylistDetail;
+  window.openNeteasePlaylistDetail = openProviderPlaylistDetail;
 
   function playDiscoverPlaylist() {
     if (!discoverPlaylist.tracks.length || discoverPlaylist.loading) return;
@@ -1485,7 +1932,7 @@
       item.tags = tags;
       item.privacy = privacy;
       (window.userPlaylists || []).forEach(function (playlist) {
-        if (playlist && playlist.provider !== 'qq' && String(playlist.id) === pid) {
+        if (playlist && (playlist.provider || 'netease') === 'netease' && String(playlist.id) === pid) {
           playlist.name = name;
           playlist.description = description;
           playlist.tags = tags;
@@ -1591,9 +2038,9 @@
   }
 
   async function openCompletePlaylistPanelDetail(provider, pid, title) {
-    if (provider === 'qq') return legacy.openPlaylistPanelDetail(provider, pid, title);
+    provider = normalizePlaylistProvider(provider);
     if (!pid) return;
-    var key = 'netease:' + String(pid);
+    var key = provider + ':' + String(pid);
     var state = window.playlistPanelDetailState;
     if (state && state.key === key) {
       if (typeof window.collapsePlaylistPanelDetail === 'function') {
@@ -1603,8 +2050,8 @@
       return legacy.openPlaylistPanelDetail(provider, pid, title);
     }
     var playlist = (window.userPlaylists || []).find(function (item) {
-      return item && item.provider !== 'qq' && String(item.id) === String(pid);
-    }) || { id: pid, provider: 'netease', name: title || '歌单详情' };
+      return item && normalizePlaylistProvider(item.provider) === provider && String(item.id) === String(pid);
+    }) || { id: pid, provider: provider, source: provider, name: title || '歌单详情' };
     var token = state ? state.token + 1 : 1;
     window.playlistPanelDetailState = {
       key: key,
@@ -1619,7 +2066,7 @@
     if (typeof window.renderPlaylistPanelDetailState === 'function') window.renderPlaylistPanelDetailState();
     if (typeof window.scrollPlaylistPanelDetailIntoView === 'function') window.scrollPlaylistPanelDetailIntoView(key);
     try {
-      var result = await fetchCompletePlaylist(pid, {
+      var result = await fetchCompletePlaylist(provider, pid, {
         total: playlist.trackCount,
         playlist: playlist,
         onPage: function (progress, playlistInfo) {
@@ -1660,7 +2107,7 @@
       var currentState = window.playlistPanelDetailState;
       if (!currentState || currentState.token !== token || currentState.key !== key) return;
       if (error && error.cancelled) return;
-      invalidateNeteaseSession(error);
+      if (provider === 'netease') invalidateNeteaseSession(error);
       var partial = error && error.partialResult && error.partialResult.items || currentState.tracks;
       currentState.loading = false;
       currentState.v150LoadingMore = false;
@@ -1673,13 +2120,13 @@
   }
 
   async function loadCompletePlaylistIntoQueue(id, autoplay, title) {
-    if (String(id || '').indexOf('qq:') === 0) return legacy.loadPlaylistIntoQueueById(id, autoplay, title);
-    if (!id || playlistQueueBusy) return;
+    var reference = parsePlaylistReference(id);
+    if (!reference.id || playlistQueueBusy) return;
     playlistQueueBusy = true;
     if (typeof window.showLoading === 'function') window.showLoading();
     showOperation('正在载入完整歌单', 'busy');
     try {
-      var result = await fetchCompletePlaylist(id, {
+      var result = await fetchCompletePlaylist(reference.provider, reference.id, {
         onPage: function (progress) {
           showOperation(
             '正在载入完整歌单 ' + progress.items.length + (progress.total ? '/' + progress.total : ''),
@@ -1693,7 +2140,7 @@
       }
       window.playQueue = result.items.map(clone);
       if (typeof window.isLikedPlaylistContext === 'function' &&
-          window.isLikedPlaylistContext(id, title, result.playlist) &&
+          window.isLikedPlaylistContext(playlistReference(reference.provider, reference.id), title, result.playlist) &&
           typeof window.markSongsLiked === 'function') {
         window.markSongsLiked(window.playQueue, true);
       }
@@ -1714,7 +2161,7 @@
       }
       hideOperationSoon();
     } catch (error) {
-      invalidateNeteaseSession(error);
+      if (reference.provider === 'netease') invalidateNeteaseSession(error);
       var partial = error && error.partialResult && error.partialResult.items || [];
       if (partial.length) {
         window.playQueue = partial.map(clone);
@@ -1754,13 +2201,15 @@
         key: function (playlist) { return 'playlist:' + String(playlist && playlist.id || ''); },
       });
       if (token !== userPlaylistRefreshToken) return;
-      var qq = (window.userPlaylists || []).filter(function (playlist) { return playlist && playlist.provider === 'qq'; });
+      var external = (window.userPlaylists || []).filter(function (playlist) {
+        return playlist && playlist.provider && playlist.provider !== 'netease';
+      });
       var netease = result.items.map(function (playlist) {
         playlist.provider = 'netease';
         playlist.source = 'netease';
         return playlist;
       });
-      window.userPlaylists = netease.concat(qq);
+      window.userPlaylists = netease.concat(external);
       userPlaylistsComplete = result.complete && !result.truncated;
       if (typeof window.resetPlaylistPanelRenderLimit === 'function') window.resetPlaylistPanelRenderLimit();
       if (typeof window.renderUserPlaylistsList === 'function') window.renderUserPlaylistsList({ animate: false, reset: true });
@@ -1810,17 +2259,7 @@
         var more = event.target && event.target.closest && event.target.closest('[data-v150-load-more-typed]');
         var retry = event.target && event.target.closest && event.target.closest('[data-v150-retry-typed]');
         if (entity) openTypedEntity(finite(entity.getAttribute('data-v150-typed-index'), -1));
-        else if (playComprehensive) {
-          var songSection = comprehensiveSection('song');
-          playAllNeteaseSearchResults({
-            expectedType: 'all',
-            query: typedSearch.query,
-            initialItems: songSection.items,
-            total: songSection.total,
-            offset: songSection.nextOffset,
-            hasMore: songSection.hasMore,
-          });
-        }
+        else if (playComprehensive) playAllComprehensiveSearchSongs();
         else if (comprehensive) openComprehensiveEntity(
           comprehensive.getAttribute('data-v150-comprehensive-type'),
           finite(comprehensive.getAttribute('data-v150-comprehensive-index'), -1)
@@ -1833,7 +2272,7 @@
     var searchInput = byId('search-input');
     if (searchInput) {
       searchInput.addEventListener('input', function () {
-        if (currentMode() !== 'netease' || typedSearch.type === 'song') return;
+        if (!supportsEntitySearch() || typedSearch.type === 'song') return;
         searchPlayAllToken += 1;
         resetTypedSearch(true);
       });
@@ -1843,7 +2282,7 @@
     if (sourceTabs) {
       sourceTabs.addEventListener('click', function () {
         setTimeout(function () {
-          if (currentMode() !== 'netease') searchPlayAllToken += 1;
+          if (!supportsEntitySearch()) searchPlayAllToken += 1;
           syncSearchTypeUi();
         }, 0);
       });
@@ -1952,19 +2391,19 @@
     };
     window.doSearch = function (query, options) {
       searchPlayAllToken += 1;
-      if (currentMode() === 'netease' && typedSearch.type !== 'song') {
+      if (supportsEntitySearch() && typedSearch.type !== 'song') {
         return runTypedSearch(query, false);
       }
       return legacy.doSearch(query, options);
     };
     window.loadMoreSearchResults = function () {
-      if (currentMode() === 'netease' && typedSearch.type !== 'song') {
+      if (supportsEntitySearch() && typedSearch.type !== 'song') {
         return runTypedSearch(typedSearch.query, true);
       }
       return legacy.loadMoreSearchResults.apply(this, arguments);
     };
     window.retryV140Search = function () {
-      if (currentMode() === 'netease' && typedSearch.type !== 'song') {
+      if (supportsEntitySearch() && typedSearch.type !== 'song') {
         return runTypedSearch(typedSearch.query || (byId('search-input') && byId('search-input').value), false);
       }
       return legacy.retrySearch.apply(this, arguments);
@@ -2004,6 +2443,6 @@
     discover: discoverState,
     playlist: discoverPlaylist,
     search: typedSearch,
-    version: '1.5.4',
+    version: '3.0.1',
   };
 })();

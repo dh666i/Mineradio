@@ -811,7 +811,7 @@
       var secondaryText = rawSecondaryText.replace(/\s+/g, ' ').trim();
       state.text = text;
       state.secondaryText = secondaryText;
-      baseFontSize = Math.round(58 * clamp(state.size, .72, 1.55, 1));
+      baseFontSize = Math.round(58 * clamp(state.size, .35, 1.55, 1));
       state.progress = clamp(state.progress, 0, 1, 0);
       state.progressSpan = clamp(state.progressSpan, .75, 18, 4.8);
       state.progressReceivedAt = performance.now();

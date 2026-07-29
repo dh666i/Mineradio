@@ -463,6 +463,20 @@ body.podcast-playing .podcast-control { display: inline-flex; }
 .settings-content .fx-toggle { margin: 8px 0; }
 .settings-action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(128px, 100%), 1fr)); gap: 9px; }
 .settings-action-grid .modal-btn { min-width: 0; white-space: nowrap; }
+.pl-import-delete {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255,255,255,.42);
+  cursor: pointer;
+}
+.pl-import-delete:hover { background: rgba(255,83,103,.14); color: #ff8897; }
+.pl-import-delete svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .settings-version { margin-top: 18px; color: rgba(255,255,255,.34); font-size: 10.5px; }
 .settings-about-layout {
   display: grid;

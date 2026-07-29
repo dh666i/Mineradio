@@ -1,24 +1,26 @@
-# Mineradio 1.5.4
+# Mineradio 3.0.1
 
 ![Mineradio 暗场启动页](./docs/assets/readme/cinema-beat-smoke.png)
 
-Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、搜索播放、歌词舞台、粒子视觉和 3D 歌单架组合成一个更接近现场感的私人音乐空间。
+Mineradio 是一款 Electron 桌面沉浸式音乐播放器，把天气电台、搜索播放、歌词舞台、粒子视觉和 3D 歌单架组合成一个更接近现场感的私人音乐空间。
 
 ## 项目说明
 
-本项目基于 [XxHuberrr/Mineradio](https://github.com/XxHuberrr/Mineradio) 持续开发。由于上游项目目前更新较少，为继续完善实际使用体验，本仓库在遵守 GPL-3.0 许可证的前提下进行二次开发与维护。感谢原作者 [@XxHuberrr](https://github.com/XxHuberrr) 完成初始版本；完整版权与来源说明见 [NOTICE.md](./NOTICE.md)。
+本项目基于 [XxHuberrr/Mineradio](https://github.com/XxHuberrr/Mineradio) 持续开发，围绕 Windows 桌面体验和以网易云音乐为主的日常使用场景进行二次开发与维护。感谢原作者 [@XxHuberrr](https://github.com/XxHuberrr) 完成初始版本；完整版权与来源说明见 [NOTICE.md](./NOTICE.md)。
 
 ## 当前状态
 
-当前源码版本：`1.5.4`
+当前源码版本：`3.0.1`
 
-当前稳定安装版为 `v1.5.4`。Windows 安装包仅通过本仓库 Releases 发布。
+当前稳定安装版为 `v3.0.1`。Windows 安装包与 macOS 预览包仅通过本仓库 Releases 发布。
 
-`v1.5.4` 新增默认无缝衔接与可选 3 / 5 / 8 秒交叉淡化，并继续完善搜索、歌单、启动视觉和设置界面。完整变更见 [CHANGELOG.md](./CHANGELOG.md)。
+`v3.0.1` 将搜索扩展为五平台的综合、单曲、歌手、专辑和歌单分类，补齐歌手热门歌曲播放、分享歌单导入、凭据保护、播放恢复和安全媒体代理，并引入 blockmap 差量更新：存在可复用的旧安装包与块清单时只下载变化内容，校验或网络条件不满足时自动回退完整安装包。完整变更见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 下载或安装被拦截怎么办
 
-当前 `v1.2.0` 历史安装包未签名；从 `v1.3.0` 起使用自签名 Authenticode。自签名证书不具备公共信任链，浏览器、Windows Defender 或 SmartScreen 仍可能提示风险。请只从本仓库 Releases 下载并核对文件摘要。
+`v1.3.0` 至公开版 `v1.5.4` 使用同一份自签名 Authenticode；`v3.0.1` 起恢复无签名发布。无签名包仍会通过 GitHub `latest.yml` 的文件大小与 SHA512 摘要校验，并提供独立 SHA256 文件，Windows SmartScreen 可能显示未知发布者。请只从本仓库 Releases 下载并核对文件摘要。
+
+已安装 `v1.5.4` 的用户需要手动下载并覆盖安装 `v3.0.1`：旧版更新器要求新安装包沿用原证书，会拒绝打开无签名安装包。这是一次性的签名策略切换，用户数据和登录状态不会因覆盖安装而删除。
 
 1. 浏览器下载栏提示风险时，打开下载列表，点这条下载右侧的 `...` 三个点，选择 `保留` / `仍要保留` / `显示更多` 后继续保留。
 2. Windows SmartScreen 弹出蓝色拦截窗口时，点 `更多信息`，再点 `仍要运行`。
@@ -39,7 +41,8 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、�
 - 右键唤起 3D 歌单架，支持歌单队列浏览
 - 网易云音乐账号、搜索、歌单、播客、每日推荐和私人 FM 接入
 - 网易云发现页支持热门歌单、新碟、新歌、分类浏览，以及歌曲、歌手、专辑和歌单类型搜索
-- 网易云与 QQ 音乐搜索支持分页、加载更多、单来源失败重试、播放全部、批量入队和歌曲快捷操作
+- 网易云、QQ 音乐、酷狗音乐、汽水音乐与 Spotify 提供统一来源标识、分页、单来源失败重试和歌单入口
+- 搜索支持综合、单曲、歌手、专辑和歌单分类，并可直接粘贴五平台分享歌单链接导入本地侧栏
 - 支持专辑详情、歌手专辑、歌单收藏，以及本人普通网易云歌单的元数据编辑、删除、移除歌曲和曲序同步
 - 播放队列支持 5000 首跨启动恢复、窗口分页、拖动/键盘排序、多选移除、撤销和保存为网易云歌单
 - 10 段均衡器、音效预设、基础响度与峰值保护、输出设备选择和下一首预取
@@ -55,7 +58,9 @@ Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电台、�
 
 ## 使用说明
 
-Windows 用户可从 [GitHub Releases](https://github.com/dh666i/Mineradio/releases/tag/v1.5.4) 下载带 `1.5.4` 版本号的安装包，并使用同一 Release 中的 SHA256 文件核对摘要。
+Windows 用户可从 [GitHub Releases](https://github.com/dh666i/Mineradio/releases/tag/v3.0.1) 下载带 `3.0.1` 版本号的安装包，并使用同一 Release 中的 SHA256 文件核对摘要。
+
+macOS 用户可按处理器下载 `x64`（Intel）或 `arm64`（Apple Silicon）DMG/ZIP 预览包。本版本使用无需开发者账号的 ad-hoc 本地完整性签名，没有 Apple Developer 身份签名或 Apple 公证；首次打开可能需要在 Finder 中右键选择“打开”，或在“系统设置 > 隐私与安全性”中放行。macOS 版本已经通过云端双架构构建和平台隔离测试，但尚未完成真机全流程验证。
 
 ## 开发运行
 
@@ -64,15 +69,16 @@ npm install
 npm start
 npm test
 npm run build:win
+npm run build:mac
 ```
 
-桌面版入口由 Electron 主进程加载本地服务。`npm run build:win` 会生成 Windows NSIS 安装包，产物位于 `dist/`。
+桌面版入口由 Electron 主进程加载本地服务。`npm run build:win` 会生成 Windows NSIS 安装包；`npm run build:mac` 必须在 macOS 上运行，会生成 Intel 与 Apple Silicon 的 DMG/ZIP，产物均位于 `dist/`。
 
 ## 更新机制
 
 Mineradio 会请求 `dh666i/Mineradio` 的 GitHub Releases 检测新版本。远端版本高于本地版本时，应用内更新入口会展示 Release 内容、下载并校验完整安装包，再由系统打开安装程序。
 
-本地验证更新链路时，可以通过 `MINERADIO_UPDATE_MANIFEST` 指向一个本地 manifest JSON 或 HTTP 地址来模拟线上 Release。
+从源码启动并在本地验证更新链路时，可以通过 `MINERADIO_UPDATE_MANIFEST` 指向一个本地 manifest JSON 或 HTTP 地址来模拟线上 Release；已打包应用会忽略此覆盖，只接受仓库配置生成的 GitHub 更新元数据。
 
 ## 第三方音乐平台说明
 

@@ -282,6 +282,38 @@
     return media;
   }
 
+  function discardMedia(media) {
+    if (!media || media === window.audio) return;
+    clearTransitionMediaErrorHandler(media);
+    cancelDeckAutomation(media);
+    try {
+      media.onended = null;
+      media.pause();
+      media.removeAttribute('src');
+      media.load();
+    } catch (_) {}
+    try {
+      if (media.__mineradioMediaSource && typeof media.__mineradioMediaSource.disconnect === 'function') media.__mineradioMediaSource.disconnect();
+    } catch (_) {}
+    try {
+      if (media.__mineradioDeckGain && typeof media.__mineradioDeckGain.disconnect === 'function') media.__mineradioDeckGain.disconnect();
+    } catch (_) {}
+    media.__mineradioAudioContext = null;
+    media.__mineradioMediaSource = null;
+    media.__mineradioDeckGain = null;
+  }
+
+  function resetMediaPool(reason) {
+    cancelTransition(reason || 'media-pool-reset');
+    var staleStandby = standbyMedia;
+    standbyMedia = null;
+    if (staleStandby && staleStandby !== window.audio) discardMedia(staleStandby);
+    transitionGraphUnavailable = false;
+    lastFailureAt = 0;
+    lastFailureKey = '';
+    return true;
+  }
+
   async function applyOutputToMedia(media) {
     if (!media || typeof media.setSinkId !== 'function') return;
     var settings = audioSettingsApi.getSettings();
@@ -846,6 +878,7 @@
 
   window.MineradioTransitionV153 = {
     cancel: cancelTransition,
+    resetMediaPool: resetMediaPool,
     tick: tickTransition,
     diagnostics: diagnostics,
     hasAudibleOutgoing: hasAudibleOutgoing,

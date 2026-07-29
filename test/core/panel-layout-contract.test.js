@@ -109,10 +109,13 @@ test('expanded playlist actions keep the collapse control compact', () => {
 test('provider badges use full Chinese platform names', () => {
   assert.match(indexSource, /\.tag-source\{[^}]*letter-spacing:0;[^}]*white-space:nowrap/);
   assert.match(indexSource, /\.daily-recommend-row \.source\{[^}]*letter-spacing:0;[^}]*white-space:nowrap/);
-  assert.match(indexSource, /var sourceLabel = provider === 'qq' \? 'QQ音乐' : '网易云';/);
+  assert.match(indexSource, /var sourceLabel = platformMeta\(provider\)\.label;/);
   assert.match(indexSource, /'<span class="source">网易云<\/span>'/);
-  assert.match(indexSource, /var label = key === 'qq' \? 'QQ音乐' : '网易云';/);
-  assert.match(indexSource, /var providerLabel = provider === 'qq' \? 'QQ音乐' : '网易云';/);
+  assert.match(indexSource, /var labels = \{ netease: '网易云', qq: 'QQ音乐', kugou: '酷狗音乐', qishui: '汽水音乐', spotify: 'Spotify' \};/);
+  assert.match(indexSource, /var providerLabel = platformMeta\(provider\)\.label;/);
+  assert.match(indexSource, /label: platformMeta\(provider\)\.label \+ '歌单'/);
+  assert.match(indexSource, /playlistId: playlistPanelProviderId\(provider, pl\.id\)/);
+  assert.match(indexSource, /playlistTracksEndpoint\(parsedShelfPlaylist\.provider, parsedShelfPlaylist\.id\)/);
 });
 
 test('stage lyric layout modes are wired through UI and persisted settings', () => {

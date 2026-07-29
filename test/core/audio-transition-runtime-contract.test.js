@@ -55,11 +55,12 @@ test('events from a retired deck cannot overwrite active playback state', () => 
     'function bindPlaybackProgressEvents',
     'function emitProgressDragParticles',
   );
-  const activeDeckGuards = binding.match(/if \(audioEl !== audio\) return;/g) || [];
+  const activeDeckGuards = binding.match(/if \(!playbackMediaOwnedByCurrentTrack\(audioEl\)\) return;/g) || [];
 
-  assert.equal(activeDeckGuards.length, 2);
+  assert.equal(activeDeckGuards.length, 3);
   assert.match(binding, /audioEl\.addEventListener\(name,[\s\S]*?updatePlaybackProgressUi\(\)/);
   assert.match(binding, /audioEl\.addEventListener\(name,[\s\S]*?syncPlaybackStateFromAudioEvent\(name\)/);
+  assert.match(binding, /audioEl\.addEventListener\(name,[\s\S]*?schedulePlaybackStallRecovery\(name,/);
 });
 
 test('prepared transition adoption reuses the candidate without pausing or loading it', () => {
