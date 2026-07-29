@@ -101,6 +101,7 @@ test('update download cancellation aborts the stream and removes the partial fil
       MINERADIO_UPDATE_MIRRORS: 'disabled',
       MINERADIO_UPDATE_DIR: workDir,
       MINERADIO_UPDATE_DOWNLOAD_DIR: path.join(workDir, 'downloads'),
+      MINERADIO_RUNTIME_PLATFORM: 'win32',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

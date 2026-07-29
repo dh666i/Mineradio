@@ -172,6 +172,7 @@ test.before(async () => {
   process.env.MINERADIO_UPDATE_MIRRORS = 'disabled';
   process.env.MINERADIO_UPDATE_DIR = workDir;
   process.env.MINERADIO_UPDATE_DOWNLOAD_DIR = downloadsDir;
+  process.env.MINERADIO_RUNTIME_PLATFORM = 'win32';
   process.env.HOST = '127.0.0.1';
   process.env.PORT = '0';
 
