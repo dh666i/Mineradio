@@ -1758,7 +1758,7 @@ function mapQishuiMedia(raw, index, query, opts) {
   const display = pickObject(track.display_info, media.display_info, raw.display_info);
   const related = pickObject(track.related_info, media.related_info, raw.related_info);
   const id = normalizeText(
-    base.id || track.id || media.id || raw.id || raw.media_id || raw.item_id || raw.song_id || raw.vid || ('qishui-' + index + '-' + query)
+    base.id || track.id || media.id || raw.id || raw.media_id || raw.item_id || raw.song_id || raw.vid
   );
   const name = normalizeText(base.name || base.title || track.name || track.title || media.name || raw.name || raw.title);
   if (!id || !name) return null;
@@ -2462,7 +2462,7 @@ function mapQishuiPublicItem(raw, index, query) {
   raw = raw || {};
   const author = pickObject(raw.author_info, raw.author, raw.artist);
   const album = pickObject(raw.album_info, raw.album);
-  const id = normalizeText(raw.item_id || raw.id || raw.song_id || raw.music_id || ('qishui-public-' + index + '-' + query));
+  const id = normalizeText(raw.item_id || raw.id || raw.song_id || raw.music_id);
   const name = normalizeText(raw.title || raw.name || raw.song_name);
   if (!id || !name) return null;
   const artistName = normalizeText(author.name || raw.author_name || raw.artist_name || raw.singer || '');
@@ -2650,7 +2650,7 @@ async function handleQishuiPcSearch(keywords, limit, cookieText, offset) {
   const hasMoreFlag = resultData.has_more;
   const hasMore = typeof hasMoreFlag === 'boolean'
     ? hasMoreFlag
-    : (Number(hasMoreFlag) > 0 || !!nextCursor || songs.length >= limit);
+    : (Number(hasMoreFlag) > 0 || !!nextCursor || rawItems.length >= requestCount);
   return {
     provider: 'qishui',
     configured: true,
@@ -2661,7 +2661,7 @@ async function handleQishuiPcSearch(keywords, limit, cookieText, offset) {
     rawCount: rawItems.length,
     offset,
     limit,
-    nextOffset: offset + songs.length,
+    nextOffset: offset + rawItems.length,
     nextCursor,
     hasMore,
   };
@@ -2851,7 +2851,7 @@ async function handleQishuiSearch(keywords, limit, cookieText, offset) {
         rawCount: rawItems.length,
         offset,
         limit,
-        nextOffset: songs.length,
+        nextOffset: offset + rawItems.length,
         hasMore: rawItems.length >= limit,
         pcSearchError,
       };

@@ -8,6 +8,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..', '..');
 const indexSource = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
 const searchSource = fs.readFileSync(path.join(root, 'public', 'js', 'v150.js'), 'utf8');
+const pagedSearchSource = fs.readFileSync(path.join(root, 'public', 'js', 'v140.js'), 'utf8');
 
 function sourceBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -17,11 +18,21 @@ function sourceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test('music search defaults to a five-provider comprehensive entity view', () => {
+test('music search defaults to a five-provider comprehensive entity view without a persistent type bar', () => {
   const setType = sourceBetween(
     searchSource,
     'function setNeteaseSearchType',
     'window.setNeteaseSearchType = setNeteaseSearchType',
+  );
+  const shell = sourceBetween(
+    searchSource,
+    'function injectShell',
+    'function ensureDiscoverModal',
+  );
+  const bindings = sourceBetween(
+    searchSource,
+    'function bindEvents',
+    'function installOverrides',
   );
 
   assert.match(searchSource, /var SEARCH_TYPES = \['all', 'song', 'artist', 'album', 'playlist'\]/);
@@ -35,12 +46,8 @@ test('music search defaults to a five-provider comprehensive entity view', () =>
   assert.match(searchSource, /artist: \['netease', 'qq'\]/);
   assert.match(searchSource, /album: \['netease', 'spotify'\]/);
   assert.match(searchSource, /playlist: ENTITY_SEARCH_PROVIDERS\.slice\(\)/);
-  assert.match(searchSource, /var visible = supportsEntitySearch\(\)/);
-  assert.match(searchSource, /button\.disabled = !supported/);
-  assert.match(
-    searchSource,
-    /body\.empty-home-active\.diy-mode #search-area:not\(\.has-results\) #v150-search-types\{display:none\}/,
-  );
+  assert.doesNotMatch(shell, /v150-search-types|data-v150-search-type/);
+  assert.doesNotMatch(bindings, /v150-search-types|data-v150-search-type/);
   assert.match(setType, /else if \(typeof window\.renderSearchHistory === 'function'\) window\.renderSearchHistory\(\)/);
   assert.match(indexSource, /id="search-mode-netease"[\s\S]*?>网易云<\/button>/);
   assert.match(indexSource, /id="search-mode-qq"[\s\S]*?>QQ 音乐<\/button>/);
@@ -111,7 +118,7 @@ test('comprehensive play-all expands into the full multi-provider song result', 
   assert.match(bindings, /playAllComprehensiveSearchSongs\(\)/);
 });
 
-test('typing immediately cancels stale comprehensive results and play-all work', () => {
+test('typing a new query restores the hidden type state to comprehensive and cancels stale work', () => {
   const bindings = sourceBetween(
     searchSource,
     'function bindEvents',
@@ -123,9 +130,48 @@ test('typing immediately cancels stale comprehensive results and play-all work',
     "var sourceTabs = byId('search-mode-tabs')",
   );
 
-  assert.match(inputHandler, /if \(!supportsEntitySearch\(\) \|\| typedSearch\.type === 'song'\) return/);
-  assert.match(inputHandler, /searchPlayAllToken \+= 1;\s*resetTypedSearch\(true\)/);
+  assert.match(inputHandler, /if \(!supportsEntitySearch\(\)\) return/);
+  assert.match(
+    inputHandler,
+    /searchPlayAllToken \+= 1;\s*if \(typedSearch\.type !== 'all'\) typedSearch\.type = 'all';\s*resetTypedSearch\(true\)/,
+  );
   assert.doesNotMatch(inputHandler, /searchInput\.value\.trim\(\)/);
+});
+
+test('clearing search always restores comprehensive mode before delegating to the legacy cleanup', () => {
+  const overrides = sourceBetween(
+    searchSource,
+    'function installOverrides',
+    'installStyles();',
+  );
+  const clearOverride = sourceBetween(
+    overrides,
+    'window.clearSearchResults = function',
+    'window.updateSearchModeTabs = function',
+  );
+
+  assert.match(
+    clearOverride,
+    /searchPlayAllToken \+= 1;\s*typedSearch\.type = 'all';\s*resetTypedSearch\(true\);\s*return legacy\.clearSearchResults\.apply\(this, arguments\)/,
+  );
+});
+
+test('song result toolbar offers a delegated return to comprehensive search', () => {
+  const songRendering = sourceBetween(
+    pagedSearchSource,
+    'function renderSongSearchResultsV140',
+    'window.renderSongSearchResults = renderSongSearchResultsV140',
+  );
+  const bindings = sourceBetween(
+    searchSource,
+    'function bindEvents',
+    'function installOverrides',
+  );
+
+  assert.match(songRendering, /window\.__mineradioV150\.search\.type === 'song'/);
+  assert.match(songRendering, /data-v150-view-type="all"/);
+  assert.match(songRendering, /backToComprehensive \+/);
+  assert.match(bindings, /setNeteaseSearchType\(viewType\.getAttribute\('data-v150-view-type'\)\)/);
 });
 
 test('individual entity tabs retain independent provider paging and load-more behavior', () => {
@@ -149,5 +195,6 @@ test('individual entity tabs retain independent provider paging and load-more be
   assert.match(typedSearch, /mergeProviderEntities\(append \? typedSearch\.items : \[\]/);
   assert.match(bindings, /data-v150-load-more-typed/);
   assert.match(bindings, /data-v150-view-type/);
+  assert.match(searchSource, /data-v150-view-type="all"/);
   assert.match(bindings, /setNeteaseSearchType\(viewType\.getAttribute\('data-v150-view-type'\)\)/);
 });

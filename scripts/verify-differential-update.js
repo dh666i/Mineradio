@@ -2,7 +2,7 @@
 
 // 差量更新真机验证脚本: 用 dist/ 里两个真实安装包走一遍生产差量路径。
 // 用法:  node scripts/verify-differential-update.js [旧版本] [新版本] [--require-differential]
-// 例如:  node scripts/verify-differential-update.js 1.5.4 3.0.1
+// 例如:  node scripts/verify-differential-update.js 3.0.1 3.0.2
 // 默认读取 dist/，也可通过 MINERADIO_VERIFY_DIST 指定隔离目录。
 // 需要目录下存在两个版本的 Setup.exe 与 .blockmap。验证过程全程本地回环。
 
@@ -17,8 +17,8 @@ const DIST = path.resolve(process.env.MINERADIO_VERIFY_DIST || path.join(ROOT, '
 const cliArgs = process.argv.slice(2);
 const requireDifferential = cliArgs.includes('--require-differential');
 const versionArgs = cliArgs.filter(arg => arg !== '--require-differential');
-const oldVersion = versionArgs[0] || '1.5.4';
-const newVersion = versionArgs[1] || '3.0.1';
+const oldVersion = versionArgs[0] || '3.0.1';
+const newVersion = versionArgs[1] || '3.0.2';
 
 function mustRead(file) {
   if (!fs.existsSync(file)) {

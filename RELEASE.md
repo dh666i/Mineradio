@@ -4,14 +4,14 @@
 
 - 正式仓库：`https://github.com/dh666i/Mineradio`。
 - `package.json` 中 `build.publish` 与 `mineradio.update` 必须指向 `dh666i/Mineradio`。
-- 当前源码与稳定安装版为 `3.0.1`。
+- 当前源码与稳定安装版为 `3.0.2`。
 - 更新元数据只从 GitHub 官方 HTTPS 获取；安装包镜像会在下载前测速，最终文件必须通过 Release 大小与摘要校验；存在 Authenticode 签名时还会继续校验签名。
 - 技术 `appId` 使用 `com.dh666i.mineradio`，用户数据目录使用 `%APPDATA%\dh666i\Mineradio`；界面产品名保持 `Mineradio`。
 
-## v3.0.1 发布
+## v3.0.2 发布
 
-- Tag：`v3.0.1`
-- 标题：`Mineradio v3.0.1`
+- Tag：`v3.0.2`
+- 标题：`Mineradio v3.0.2`
 - 使用 `npm run build:win` 生成无签名安装包，并确认 `Get-AuthenticodeSignature` 返回 `NotSigned`。
 - 使用 GitHub Actions 的 macOS runner 按架构执行 electron-builder，生成 `x64` 与 `arm64` 两套 DMG/ZIP 预览包；使用 ad-hoc 本地完整性签名，不使用 Apple Developer 身份签名或公证。
 - `v1.3.0` 至公开版 `v1.5.4` 使用自签名 Authenticode；`v3.0.1` 起恢复无签名发布。
@@ -23,14 +23,14 @@
 
 发布资产：
 
-- `dist/Mineradio-3.0.1-Setup.exe`
-- `dist/Mineradio-3.0.1-Setup.exe.blockmap`
+- `dist/Mineradio-3.0.2-Setup.exe`
+- `dist/Mineradio-3.0.2-Setup.exe.blockmap`
 - `dist/latest.yml`
-- `dist/Mineradio-3.0.1-x64.dmg`
-- `dist/Mineradio-3.0.1-x64.zip`
-- `dist/Mineradio-3.0.1-arm64.dmg`
-- `dist/Mineradio-3.0.1-arm64.zip`
-- `dist/Mineradio-3.0.1-SHA256SUMS.txt`
+- `dist/Mineradio-3.0.2-x64.dmg`
+- `dist/Mineradio-3.0.2-x64.zip`
+- `dist/Mineradio-3.0.2-arm64.dmg`
+- `dist/Mineradio-3.0.2-arm64.zip`
+- `dist/Mineradio-3.0.2-SHA256SUMS.txt`
 
 ## v1.2.0 发布
 
@@ -57,7 +57,7 @@
 - 运行 `git diff --check`、Node 语法检查、前端内联 CSS/JavaScript 解析。
 - 先执行 `npm run build:win:dir` 核对打包版本、EXE 元数据、许可证和运行时依赖，再执行 `npm run build:win` 生成正式无签名安装包。
 - 对无签名正式包运行 `Get-AuthenticodeSignature`，状态应为 `NotSigned`；随后验证静默安装、覆盖升级和卸载。
-- 使用 GitHub 已发布的 `v1.5.4` 安装包与 blockmap 验证 `v3.0.1` 差量路径，不得使用摘要不一致的本地历史产物冒充发布基线。
+- 使用 GitHub 已发布的 `v3.0.1` 安装包与 blockmap 验证 `v3.0.1 -> v3.0.2` 差量路径，不得使用摘要不一致的本地历史产物冒充发布基线。
 - 使用本机安全软件扫描最终安装包，并生成 SHA256 校验文件。
 - 下载 GitHub Actions 生成的 macOS 产物，核对文件名、架构、版本、ad-hoc 签名和摘要；在没有真机结果前必须标注为预览版。
 

@@ -683,7 +683,17 @@ async function kugouSearch(keywords, limit, cookie, offset) {
     headers: { ...KUGOU_HEADERS, Cookie: buildKugouRequestCookie(cookie) },
   });
   const list = json && json.data && Array.isArray(json.data.lists) ? json.data.lists : [];
-  return list.map(mapKugouSearchItem).filter(s => s.name && (s.hash || s.id));
+  const songs = list.map(mapKugouSearchItem).filter(s => s.name && s.hash);
+  const total = Math.max(0, Number(json && json.data && (json.data.total || json.data.total_count) || 0) || 0);
+  return {
+    songs,
+    total: Math.max(total, offset + list.length),
+    rawCount: list.length,
+    offset,
+    limit: pageSize,
+    nextOffset: offset + list.length,
+    hasMore: total ? offset + list.length < total : list.length >= pageSize,
+  };
 }
 
 async function kugouPlayViaMobile(hash, albumId, cookie, membership) {
@@ -895,7 +905,7 @@ async function handleKugouSearch(keywords, limit, cookie, offset) {
   const kw = String(keywords || '').trim();
   const lim = Math.max(1, Math.min(Number(limit) || 10, 20));
   const start = Math.max(0, Number(offset) || 0);
-  if (!kw) return [];
+  if (!kw) return { songs: [], total: 0, rawCount: 0, offset: start, limit: lim, nextOffset: start, hasMore: false };
   const cacheKey = kw.toLowerCase() + ':' + lim + ':' + start;
   return kugouSearchCache.wrap(cacheKey, null, async () => {
     console.log('[KugouSearch]', kw, 'limit:', lim, 'offset:', start);

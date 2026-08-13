@@ -186,6 +186,7 @@
     qishui: 12,
     spotify: 10
   };
+  var MAX_FILTERED_SEARCH_PAGE_SKIPS = 4;
   var v140Search = {
     query: '', mode: 'song', loading: false, requestSeq: 0,
     neteaseOffset: 0, qqOffset: 0, hasMore: false, total: 0,
@@ -224,7 +225,10 @@
   }
   function providersForSearchMode(mode) {
     if (MUSIC_SEARCH_PROVIDERS.indexOf(mode) >= 0) return providerCanSearch(mode) ? [mode] : [];
-    return MUSIC_SEARCH_PROVIDERS.filter(providerCanSearch);
+    var providers = MUSIC_SEARCH_PROVIDERS.filter(providerCanSearch);
+    return typeof prioritizeSearchProviders === 'function'
+      ? prioritizeSearchProviders(providers)
+      : providers;
   }
   function providerSearchUrl(provider, q, limit, offset) {
     if (typeof musicSearchProviderUrl === 'function') return musicSearchProviderUrl(provider, q, limit, offset);
@@ -292,11 +296,15 @@
       }
       var response = entry.value;
       var value = response.value || {};
-      var songs = Array.isArray(value.songs) ? value.songs : [];
-      var nextOffset = finite(value.nextOffset, response.offset + songs.length);
-      if (nextOffset <= response.offset && songs.length) nextOffset = response.offset + songs.length;
-      var hasMore = value.hasMore == null ? songs.length >= response.limit : value.hasMore === true;
-      if (!songs.length || nextOffset <= response.offset) hasMore = false;
+      var rawSongs = Array.isArray(value.songs) ? value.songs : [];
+      var rawCount = Math.max(0, finite(value.rawCount, rawSongs.length));
+      var songs = typeof filterVisibleSearchResults === 'function'
+        ? filterVisibleSearchResults(rawSongs)
+        : rawSongs;
+      var nextOffset = finite(value.nextOffset, response.offset + rawCount);
+      if (nextOffset <= response.offset && rawCount) nextOffset = response.offset + rawCount;
+      var hasMore = value.hasMore == null ? rawCount >= response.limit : value.hasMore === true;
+      if (!rawCount || nextOffset <= response.offset) hasMore = false;
       pools[provider] = songs;
       providerPages[provider] = {
         offset: response.offset,
@@ -313,6 +321,7 @@
     var merged = typeof mergeSongSearchResults === 'function'
       ? mergeSongSearchResults(pools.netease, pools.qq, pools.kugou, pools.qishui, pools.spotify, mergedLimit, q)
       : [].concat(pools.netease, pools.qq, pools.kugou, pools.qishui, pools.spotify);
+    if (typeof filterVisibleSearchResults === 'function') merged = filterVisibleSearchResults(merged);
     var neteasePage = providerPages.netease || {};
     var qqPage = providerPages.qq || {};
     var total = providers.reduce(function (sum, provider) {
@@ -333,6 +342,23 @@
     };
   }
 
+  async function fetchSearchPageWithVisibleResults(q, mode, state) {
+    var pageState = state || v140Search;
+    var page = await fetchSearchPage(q, mode, pageState);
+    var failures = (page.partialFailures || []).slice();
+    var skipped = 0;
+    while (!page.songs.length && page.hasMore && skipped < MAX_FILTERED_SEARCH_PAGE_SKIPS) {
+      pageState = Object.assign({}, pageState, { providerPages: page.providerPages || {} });
+      page = await fetchSearchPage(q, mode, pageState);
+      (page.partialFailures || []).forEach(function (provider) {
+        if (failures.indexOf(provider) < 0) failures.push(provider);
+      });
+      skipped += 1;
+    }
+    page.partialFailures = failures;
+    return page;
+  }
+
   function searchOverflowMarkup(song, index) {
     var albumAction = song && (song.albumId || song.album)
       ? '<button type="button" onclick="event.stopPropagation();openSearchResultAlbum(' + index + ')">查看专辑</button>' : '';
@@ -346,12 +372,16 @@
   }
 
   function renderSongSearchResultsV140(songs) {
-    playlist = songs || [];
+    playlist = typeof filterVisibleSearchResults === 'function' ? filterVisibleSearchResults(songs) : (songs || []);
     var batchCount = typeof dedupeSearchBatchSongs === 'function' ? dedupeSearchBatchSongs(playlist).length : playlist.length;
     var countLabel = v140Search.total > playlist.length
       ? '已加载 <strong>' + playlist.length + '</strong><span class="search-batch-total"> / 共 ' + v140Search.total + ' 首</span>'
       : '<strong>' + playlist.length + '</strong> 首结果';
+    var backToComprehensive = window.__mineradioV150 && window.__mineradioV150.search && window.__mineradioV150.search.type === 'song'
+      ? '<button class="search-batch-action" type="button" data-v150-view-type="all" aria-label="返回综合搜索" title="返回综合搜索"><span>‹</span></button>'
+      : '';
     var toolbar = '<div class="search-batch-toolbar" role="toolbar" aria-label="搜索结果批量操作">' +
+      backToComprehensive +
       '<span class="search-batch-count">' + countLabel + '</span>' +
       '<button class="search-batch-action primary" type="button" onclick="event.stopPropagation();playAllSearchResults()" aria-label="播放全部，共 ' + batchCount + ' 首"><span>播放全部</span></button>' +
       '<button class="search-batch-action" type="button" onclick="event.stopPropagation();addAllSearchResultsToQueue()" aria-label="全部加入队列，共 ' + batchCount + ' 首"><span>加入队列</span></button>' +
@@ -422,7 +452,7 @@
       if (moreButton) { moreButton.disabled = true; moreButton.textContent = '正在加载…'; }
     }
     try {
-      var page = await fetchSearchPage(q, mode, pagingState);
+      var page = await fetchSearchPageWithVisibleResults(q, mode, pagingState);
       if (seq !== v140Search.requestSeq || searchMode !== mode || ($input && $input.value.trim() !== inputValue)) return;
       v140Search.neteaseOffset = page.neteaseOffset;
       v140Search.qqOffset = page.qqOffset;
@@ -437,7 +467,14 @@
       playlist = mergeSearchPage(append ? playlist : [], page.songs || []);
       searchLastResultQuery = playlist.length ? searchResultKey(q, mode) : '';
       if (!playlist.length) {
-        $results.innerHTML = searchStateMarkup('没有找到相关歌曲', '换一个歌名或歌手试试', false);
+        var continueSearch = v140Search.hasMore
+          ? '<button class="fx-mini-btn ghost search-load-more" type="button" onclick="loadMoreSearchResults()">继续查找</button>'
+          : '';
+        $results.innerHTML = searchStateMarkup(
+          v140Search.hasMore ? '暂未找到可播放结果' : '没有找到相关歌曲',
+          v140Search.hasMore ? '已跳过无效音源，可以继续查找后续结果' : '换一个歌名或歌手试试',
+          false
+        ) + continueSearch;
         $results.classList.add('show');
       } else {
         rememberSearchQuery(q);
@@ -1443,7 +1480,7 @@
   function updateSettingsVersion() {
     var node = byId('settings-version');
     if (!node) return;
-    var current = updatePreviewState && updatePreviewState.currentVersion || '3.0.1';
+    var current = updatePreviewState && updatePreviewState.currentVersion || '3.0.2';
     node.textContent = 'Mineradio v' + current + (updatePreviewState && updatePreviewState.checkStatus === 'available' ? (' · 可更新至 v' + updatePreviewState.version) : '');
   }
   function activateSettingsTab(name, focus) {

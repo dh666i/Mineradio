@@ -159,7 +159,11 @@
   function providersForEntitySearch(type, mode) {
     mode = String(mode || currentMode());
     var supported = (ENTITY_SEARCH_MATRIX[type] || []).slice();
-    if (mode === 'song') return supported;
+    if (mode === 'song') {
+      return typeof window.prioritizeSearchProviders === 'function'
+        ? window.prioritizeSearchProviders(supported)
+        : supported;
+    }
     return supported.indexOf(mode) >= 0 ? [mode] : [];
   }
 
@@ -408,16 +412,11 @@
     var style = document.createElement('style');
     style.id = 'v150-runtime-styles';
     style.textContent = [
-      '#v150-search-types{display:none;align-items:center;gap:4px;width:max-content;max-width:100%;margin-top:6px;padding:3px;border:1px solid rgba(255,255,255,.07);border-radius:7px;background:rgba(8,11,14,.42)}',
-      '#v150-search-types.show{display:flex}',
-      '#v150-search-types button{height:25px;padding:0 11px;border:0;border-radius:5px;background:transparent;color:rgba(255,255,255,.43);font:650 10.5px/1 inherit;cursor:pointer}',
-      '#v150-search-types button:hover,#v150-search-types button:focus-visible{color:#fff;background:rgba(255,255,255,.06)}',
-      '#v150-search-types button.active{color:#fff;background:rgba(var(--fc-accent-rgb),.13);box-shadow:inset 0 0 0 1px rgba(var(--fc-accent-rgb),.25)}',
-      '#v150-search-types button:disabled{color:rgba(255,255,255,.18);background:transparent;box-shadow:none;cursor:not-allowed}',
-      'body.empty-home-active.diy-mode #search-area:not(.has-results) #v150-search-types{display:none}',
       '.v150-entity-toolbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;min-height:42px;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(10,13,16,.94);backdrop-filter:blur(18px)}',
       '.v150-entity-toolbar strong{font-size:11px;color:rgba(255,255,255,.82)}',
       '.v150-entity-toolbar span{font-size:10px;color:rgba(255,255,255,.36)}',
+      '.v150-entity-back{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:rgba(255,255,255,.04);color:rgba(255,255,255,.68);font:700 19px/1 inherit;cursor:pointer}',
+      '.v150-entity-back:hover,.v150-entity-back:focus-visible{color:#fff;border-color:rgba(var(--fc-accent-rgb),.28);background:rgba(var(--fc-accent-rgb),.11)}',
       '.v150-entity-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;padding:5px}',
       '.v150-entity-card{min-width:0;display:grid;grid-template-columns:48px minmax(0,1fr) 18px;align-items:center;gap:10px;min-height:64px;padding:7px 9px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}',
       '.v150-entity-card:hover,.v150-entity-card:focus-visible{background:rgba(255,255,255,.055);outline:none}',
@@ -520,19 +519,6 @@
   }
 
   function injectShell() {
-    var searchTabs = byId('search-mode-tabs');
-    if (searchTabs && !byId('v150-search-types')) {
-      var types = document.createElement('div');
-      types.id = 'v150-search-types';
-      types.setAttribute('role', 'tablist');
-      types.setAttribute('aria-label', '音乐搜索类型');
-      types.innerHTML = SEARCH_TYPES.map(function (type) {
-        return '<button type="button" role="tab" data-v150-search-type="' + type + '" aria-selected="' +
-          (type === typedSearch.type ? 'true' : 'false') + '">' + SEARCH_TYPE_LABELS[type] + '</button>';
-      }).join('');
-      searchTabs.insertAdjacentElement('afterend', types);
-    }
-
     var homeRow = document.querySelector('.home-quick-row');
     if (homeRow && !byId('home-discover-btn')) {
       var discoverButton = document.createElement('button');
@@ -613,25 +599,11 @@
   }
 
   function syncSearchTypeUi() {
-    var root = byId('v150-search-types');
-    if (!root) return;
     var visible = supportsEntitySearch();
     if (visible && !searchTypeSupportedForMode(typedSearch.type, currentMode())) {
       typedSearch.type = 'all';
       resetTypedSearch(true);
     }
-    root.classList.toggle('show', visible);
-    root.setAttribute('aria-hidden', visible ? 'false' : 'true');
-    all('[data-v150-search-type]', root).forEach(function (button) {
-      var type = button.getAttribute('data-v150-search-type');
-      var active = type === typedSearch.type;
-      var supported = visible && searchTypeSupportedForMode(type, currentMode());
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-selected', active ? 'true' : 'false');
-      button.disabled = !supported;
-      button.setAttribute('aria-disabled', supported ? 'false' : 'true');
-      button.tabIndex = supported && active ? 0 : -1;
-    });
   }
 
   function resetTypedSearch(clearQuery) {
@@ -662,6 +634,13 @@
     else if (typeof window.renderSearchHistory === 'function') window.renderSearchHistory();
   }
   window.setNeteaseSearchType = setNeteaseSearchType;
+
+  function resetSearchTypeToComprehensive() {
+    if (typedSearch.type === 'all') return;
+    searchPlayAllToken += 1;
+    typedSearch.type = 'all';
+    resetTypedSearch(true);
+  }
 
   function typedPayloadItems(payload, type) {
     var keys = type === 'artist'
@@ -748,7 +727,7 @@
       : '';
     results.innerHTML =
       warning +
-      '<div class="v150-entity-toolbar"><strong>' + SEARCH_TYPE_LABELS[type] + '</strong><span>' + countLabel + ' 条结果</span></div>' +
+      '<div class="v150-entity-toolbar"><button class="v150-entity-back" type="button" data-v150-view-type="all" aria-label="返回综合搜索" title="返回综合搜索">‹</button><strong>' + SEARCH_TYPE_LABELS[type] + '</strong><span>' + countLabel + ' 条结果</span></div>' +
       '<div class="v150-entity-grid" role="list">' + cards + '</div>' +
       (typedSearch.hasMore
         ? '<button class="fx-mini-btn ghost v150-search-more" type="button" data-v150-load-more-typed="1">加载更多</button>'
@@ -882,10 +861,13 @@
         return;
       }
       succeeded += 1;
-      pools[provider] = normalizeProviderItems(
+      var providerItems = normalizeProviderItems(
         payload && (payload.songs || payload.items || payload.results) || [],
         provider
       );
+      pools[provider] = typeof window.filterVisibleSearchResults === 'function'
+        ? window.filterVisibleSearchResults(providerItems)
+        : providerItems;
       total += Math.max(pools[provider].length, finite(payload && payload.total, pools[provider].length));
       hasMore = hasMore || !!(payload && (payload.hasMore || payload.more));
     });
@@ -901,6 +883,7 @@
           query
         )
       : [].concat(pools.netease, pools.qq, pools.kugou, pools.qishui, pools.spotify).slice(0, limit);
+    if (typeof window.filterVisibleSearchResults === 'function') merged = window.filterVisibleSearchResults(merged);
     return {
       items: merged,
       total: Math.max(merged.length, total),
@@ -2230,25 +2213,6 @@
         payload: event && event.detail || { authExpired: true, loggedIn: false },
       });
     });
-    var typeRoot = byId('v150-search-types');
-    if (typeRoot) {
-      typeRoot.addEventListener('click', function (event) {
-        var button = event.target && event.target.closest && event.target.closest('[data-v150-search-type]');
-        if (button) setNeteaseSearchType(button.getAttribute('data-v150-search-type'));
-      });
-      typeRoot.addEventListener('keydown', function (event) {
-        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-        event.preventDefault();
-        var index = SEARCH_TYPES.indexOf(typedSearch.type);
-        index += event.key === 'ArrowRight' ? 1 : -1;
-        if (index < 0) index = SEARCH_TYPES.length - 1;
-        if (index >= SEARCH_TYPES.length) index = 0;
-        setNeteaseSearchType(SEARCH_TYPES[index]);
-        var active = typeRoot.querySelector('[data-v150-search-type="' + SEARCH_TYPES[index] + '"]');
-        if (active) active.focus();
-      });
-    }
-
     var results = byId('search-results');
     if (results) {
       results.addEventListener('click', function (event) {
@@ -2272,18 +2236,30 @@
     var searchInput = byId('search-input');
     if (searchInput) {
       searchInput.addEventListener('input', function () {
-        if (!supportsEntitySearch() || typedSearch.type === 'song') return;
+        if (!supportsEntitySearch()) return;
         searchPlayAllToken += 1;
+        if (typedSearch.type !== 'all') typedSearch.type = 'all';
         resetTypedSearch(true);
       });
     }
 
     var sourceTabs = byId('search-mode-tabs');
     if (sourceTabs) {
-      sourceTabs.addEventListener('click', function () {
+      sourceTabs.addEventListener('click', function (event) {
+        var button = event.target && event.target.closest && event.target.closest('button[id^="search-mode-"]');
+        if (!button) return;
+        var requestedMode = button ? button.id.slice('search-mode-'.length) : '';
+        var previousMode = currentMode();
+        var returningFromTypedView = typedSearch.type !== 'all';
         setTimeout(function () {
-          if (!supportsEntitySearch()) searchPlayAllToken += 1;
+          resetSearchTypeToComprehensive();
           syncSearchTypeUi();
+          if (returningFromTypedView && requestedMode === previousMode && requestedMode === currentMode()) {
+            var input = byId('search-input');
+            var query = input ? input.value.trim() : '';
+            if (query) window.doSearch(query);
+            else if (typeof window.renderSearchHistory === 'function') window.renderSearchHistory();
+          }
         }, 0);
       });
     }
@@ -2381,6 +2357,7 @@
   function installOverrides() {
     window.clearSearchResults = function () {
       searchPlayAllToken += 1;
+      typedSearch.type = 'all';
       resetTypedSearch(true);
       return legacy.clearSearchResults.apply(this, arguments);
     };
@@ -2443,6 +2420,6 @@
     discover: discoverState,
     playlist: discoverPlaylist,
     search: typedSearch,
-    version: '3.0.1',
+    version: '3.0.2',
   };
 })();

@@ -45,7 +45,11 @@ function createSearchRuntime(apiJsonV140) {
   };
 
   vm.createContext(sandbox);
-  vm.runInContext(`${searchSource}\nwindow.__fetchSearchPage = fetchSearchPage;`, sandbox);
+  vm.runInContext(
+    `${searchSource}\nwindow.__fetchSearchPage = fetchSearchPage;` +
+      'window.__fetchSearchPageWithVisibleResults = fetchSearchPageWithVisibleResults;',
+    sandbox,
+  );
   return sandbox;
 }
 
@@ -132,6 +136,43 @@ test('failed provider paging retries from the same offset and clears failure aft
   assert.equal(secondPage.providerPages.qishui.hasMore, false);
   assert.equal(secondPage.providerPages.qishui.failed, false);
   assert.deepEqual(Array.from(secondPage.partialFailures), []);
+});
+
+test('filtered empty pages advance automatically until a visible result is found', async () => {
+  const requests = [];
+  const runtime = createSearchRuntime(async (url) => {
+    const request = requestParts(url);
+    requests.push(request);
+    if (request.provider !== 'netease') {
+      return { songs: [], rawCount: 0, nextOffset: request.offset, total: 0, hasMore: false };
+    }
+    if (request.offset === 0) {
+      return {
+        songs: [{ provider: 'netease', id: 'invalid', name: 'invalid', unavailable: true }],
+        rawCount: 1,
+        nextOffset: 1,
+        total: 2,
+        hasMore: true,
+      };
+    }
+    return {
+      songs: [{ provider: 'netease', id: 'visible', name: 'visible' }],
+      rawCount: 1,
+      nextOffset: 2,
+      total: 2,
+      hasMore: false,
+    };
+  });
+  runtime.filterVisibleSearchResults = songs => songs.filter(song => !song.unavailable);
+
+  const page = await runtime.window.__fetchSearchPageWithVisibleResults('test', 'song', { providerPages: {} });
+
+  assert.deepEqual(Array.from(page.songs, song => song.id), ['visible']);
+  assert.deepEqual(
+    requests.filter(request => request.provider === 'netease').map(request => request.offset),
+    [0, 1],
+  );
+  assert.equal(page.hasMore, false);
 });
 
 test('final lyric override routes all providers and keeps translated lyric variants', async () => {

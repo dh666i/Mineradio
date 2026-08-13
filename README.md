@@ -1,4 +1,4 @@
-# Mineradio 3.0.1
+# Mineradio 3.0.2
 
 ![Mineradio 暗场启动页](./docs/assets/readme/cinema-beat-smoke.png)
 
@@ -10,11 +10,11 @@ Mineradio 是一款 Electron 桌面沉浸式音乐播放器，把天气电台、
 
 ## 当前状态
 
-当前源码版本：`3.0.1`
+当前源码版本：`3.0.2`
 
-当前稳定安装版为 `v3.0.1`。Windows 安装包与 macOS 预览包仅通过本仓库 Releases 发布。
+当前稳定安装版为 `v3.0.2`。Windows 安装包与 macOS 预览包仅通过本仓库 Releases 发布。
 
-`v3.0.1` 将搜索扩展为五平台的综合、单曲、歌手、专辑和歌单分类，补齐歌手热门歌曲播放、分享歌单导入、凭据保护、播放恢复和安全媒体代理，并引入 blockmap 差量更新：存在可复用的旧安装包与块清单时只下载变化内容，校验或网络条件不满足时自动回退完整安装包。完整变更见 [CHANGELOG.md](./CHANGELOG.md)。
+`v3.0.2` 精简搜索界面，移除搜索框下方常驻的结果类型栏；综合结果会优先展示当前选中的有效登录账号来源，再展示其他已登录与公共来源，并过滤缺少真实平台 ID、明确下架或已确认无法取链的结果。同时修正过滤后的多平台分页游标，并升级地址解析依赖。完整变更见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 下载或安装被拦截怎么办
 
@@ -58,7 +58,7 @@ Mineradio 是一款 Electron 桌面沉浸式音乐播放器，把天气电台、
 
 ## 使用说明
 
-Windows 用户可从 [GitHub Releases](https://github.com/dh666i/Mineradio/releases/tag/v3.0.1) 下载带 `3.0.1` 版本号的安装包，并使用同一 Release 中的 SHA256 文件核对摘要。
+Windows 用户可从 [GitHub Releases](https://github.com/dh666i/Mineradio/releases/tag/v3.0.2) 下载带 `3.0.2` 版本号的安装包，并使用同一 Release 中的 SHA256 文件核对摘要。
 
 macOS 用户可按处理器下载 `x64`（Intel）或 `arm64`（Apple Silicon）DMG/ZIP 预览包。本版本使用无需开发者账号的 ad-hoc 本地完整性签名，没有 Apple Developer 身份签名或 Apple 公证；首次打开可能需要在 Finder 中右键选择“打开”，或在“系统设置 > 隐私与安全性”中放行。macOS 版本已经通过云端双架构构建和平台隔离测试，但尚未完成真机全流程验证。
 

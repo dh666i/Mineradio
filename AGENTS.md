@@ -5,7 +5,7 @@
 Mineradio is an Electron desktop music player with a stable Windows build and macOS preview builds. Its core experience includes music search and playback, playlists, lyrics, a 3D playlist shelf, particle visuals, DIY controls, and GitHub updates.
 
 - Repository: `https://github.com/dh666i/Mineradio.git`
-- Current source version: `v3.0.1`
+- Current source version: `v3.0.2`
 - Desktop entry: `desktop/main.js`
 - Main UI: `public/index.html`
 

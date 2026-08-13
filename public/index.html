@@ -2753,7 +2753,7 @@ html.control-glass-svg-ok .home-chip.home-primary-chip:hover{
         <div>
           <div class="update-kicker">MINERADIO</div>
           <div id="update-modal-title" class="update-title">发现新版本</div>
-          <div id="update-modal-version" class="update-version">v3.0.1</div>
+          <div id="update-modal-version" class="update-version">v3.0.2</div>
         </div>
         <button class="update-close-btn" type="button" onclick="closeUpdatePanel()" title="后台下载" aria-label="关闭更新窗口，下载将在后台继续">×</button>
       </div>
@@ -3088,8 +3088,8 @@ var updatePreviewState = {
   installerSha512: '',
   installerOpened: false,
   cached: false,
-  currentVersion: '3.0.1',
-  version: '3.0.1',
+  currentVersion: '3.0.2',
+  version: '3.0.2',
   configured: false,
   preview: false,
   updateAvailable: false,
@@ -19205,6 +19205,107 @@ function songSourceTagHtml(song) {
   var label = labels[key] || key;
   return '<span class="tag-source ' + key + '">' + label + '</span>';
 }
+function loggedSearchProvider(provider) {
+  if (!/^(netease|qq|kugou|qishui|spotify)$/.test(String(provider || ''))) return false;
+  if (typeof hasPlatformLogin !== 'function' || !hasPlatformLogin(provider)) return false;
+  var status = typeof platformStatus === 'function'
+    ? platformStatus(provider)
+    : (provider === 'spotify' && typeof spotifyLoginStatus !== 'undefined' ? spotifyLoginStatus : null);
+  return !(status && (status.reauthRequired || status.authExpired));
+}
+function primarySearchProvider() {
+  var candidates = [preferredAccountProvider, activeAccountProvider];
+  if (typeof firstLoggedProvider === 'function') candidates.push(firstLoggedProvider());
+  candidates = candidates.concat(['netease', 'qq', 'kugou', 'qishui', 'spotify']);
+  for (var i = 0; i < candidates.length; i++) {
+    var provider = String(candidates[i] || '');
+    if (loggedSearchProvider(provider)) return provider;
+  }
+  return '';
+}
+function searchProviderPriorityRank(provider) {
+  provider = String(provider || '');
+  var primary = primarySearchProvider();
+  if (primary && provider === primary) return 0;
+  return loggedSearchProvider(provider) ? 1 : 2;
+}
+function prioritizeSearchProviders(providers) {
+  var unique = [];
+  (providers || []).forEach(function (provider) {
+    provider = String(provider || '');
+    if (provider && unique.indexOf(provider) < 0) unique.push(provider);
+  });
+  return unique.slice().sort(function (left, right) {
+    var leftRank = searchProviderPriorityRank(left);
+    var rightRank = searchProviderPriorityRank(right);
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return unique.indexOf(left) - unique.indexOf(right);
+  });
+}
+var SEARCH_UNAVAILABLE_CACHE_TTL_MS = 3 * 60 * 1000;
+var unavailableSearchResultCache = Object.create(null);
+function searchResultIdentity(song) {
+  song = song || {};
+  var provider = songProviderKey(song);
+  var id = '';
+  if (provider === 'qq') id = song.mid || song.songmid || song.id;
+  else if (provider === 'kugou') id = song.hash || song.fileHash || song.audioHash || song.id;
+  else if (provider === 'qishui') id = song.providerSongId || song.trackId || song.id;
+  else if (provider === 'spotify') id = song.spotifyId || song.providerSongId || song.id;
+  else id = song.id;
+  id = String(id == null ? '' : id).trim();
+  return id ? provider + ':' + id : '';
+}
+function searchAvailabilityScope(provider) {
+  var status = typeof platformStatus === 'function' ? platformStatus(provider) : null;
+  var user = status && (status.userId || status.uid || status.accountId) || 'anonymous';
+  var entitlement = status && (status.vipLevel || status.vipType || status.product) || 'standard';
+  return (status && status.loggedIn ? 'logged-in' : 'logged-out') + ':' + String(user) + ':' + String(entitlement);
+}
+function unavailableSearchResultKey(song) {
+  var identity = searchResultIdentity(song);
+  if (!identity) return '';
+  return identity + ':' + searchAvailabilityScope(songProviderKey(song));
+}
+function searchResultRestrictionCategory(song) {
+  song = song || {};
+  var restriction = song.restriction || {};
+  return String(song.availabilityReason || song.reason || restriction.category || restriction.reason || '').toLowerCase();
+}
+function rememberUnavailableSearchResult(song, reason) {
+  var key = unavailableSearchResultKey(song);
+  var category = String(reason || searchResultRestrictionCategory(song)).toLowerCase();
+  if (!key) return false;
+  if (category !== 'copyright_unavailable' && category !== 'url_unavailable') return false;
+  unavailableSearchResultCache[key] = { reason: category, expiresAt: Date.now() + SEARCH_UNAVAILABLE_CACHE_TTL_MS };
+  return true;
+}
+function forgetUnavailableSearchResult(song) {
+  var key = unavailableSearchResultKey(song);
+  if (key) delete unavailableSearchResultCache[key];
+}
+function searchResultIsVisible(song) {
+  if (!song || !String(song.name || '').trim() || !searchResultIdentity(song)) return false;
+  if (
+    song.unavailable === true || song.removed === true || song.searchPlaceholder === true ||
+    String(song.availability || song.searchAvailability || '').toLowerCase() === 'unavailable' ||
+    Number(song.st) < 0 || Number(song.status) < 0 ||
+    (song.privilege && Number(song.privilege.st) < 0) || song.noCopyrightRcmd
+  ) return false;
+  var category = searchResultRestrictionCategory(song);
+  if (category === 'copyright_unavailable' || category === 'url_unavailable') return false;
+  var key = unavailableSearchResultKey(song);
+  var cached = key && unavailableSearchResultCache[key];
+  if (!cached) return true;
+  if (Number(cached.expiresAt) <= Date.now()) {
+    delete unavailableSearchResultCache[key];
+    return true;
+  }
+  return false;
+}
+function filterVisibleSearchResults(songs) {
+  return (Array.isArray(songs) ? songs : []).filter(searchResultIsVisible);
+}
 function searchResultMetaText(song) {
   var bits = [];
   if (song.artist) bits.push(song.artist);
@@ -19343,8 +19444,11 @@ function scoreSongSearchResult(song, q, sourceIndex) {
   if (/周杰伦|周杰倫|jay\s*chou/i.test(String(q || '')) && !artistMentioned) score -= 28;
   if (album && nq && (album.indexOf(nq) >= 0 || nq.indexOf(album) >= 0)) score += 8;
   score += tryPinyinBoost(song, q);
-  if (songProviderKey(song) === 'qq') score += searchIntentPrefersQQ(q) ? 48 : (hasPlatformLogin('netease') ? -8 : 4);
-  else if (hasPlatformLogin('netease')) score += 12;
+  var resultProvider = songProviderKey(song);
+  var primaryProvider = primarySearchProvider();
+  if (primaryProvider && resultProvider === primaryProvider) score += 46;
+  else if (typeof hasPlatformLogin === 'function' && hasPlatformLogin(resultProvider)) score += 14;
+  if (resultProvider === 'qq' && searchIntentPrefersQQ(q)) score += primaryProvider && primaryProvider !== 'qq' ? 8 : 16;
   if (song && song.playable === false) score -= 12;
   if (!qAsksDerivative) {
     if (derivative) score -= artistMentioned ? 76 : 96;
@@ -19358,7 +19462,7 @@ function mergeSongSearchResults(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, 
   var out = [];
   var seen = {};
   function push(song, sourceIndex) {
-    if (!song || !song.name) return;
+    if (!searchResultIsVisible(song)) return;
     var key = songProviderKey(song) + ':' + (song.mid || song.id || (song.name + '|' + song.artist));
     if (seen[key]) return;
     seen[key] = true;
@@ -19370,8 +19474,17 @@ function mergeSongSearchResults(neteaseSongs, qqSongs, kugouSongs, qishuiSongs, 
   (kugouSongs || []).forEach(function(song, i){ push(song, i); });
   (qishuiSongs || []).forEach(function(song, i){ push(song, i); });
   (spotifySongs || []).forEach(function(song, i){ push(song, i); });
-  out.sort(function(a, b){ return (b._searchScore || 0) - (a._searchScore || 0); });
+  out.sort(function(a, b){
+    var providerRank = searchProviderPriorityRank(songProviderKey(a)) - searchProviderPriorityRank(songProviderKey(b));
+    return providerRank || ((b._searchScore || 0) - (a._searchScore || 0));
+  });
   return out.slice(0, limit);
+}
+function musicSearchProviders(mode) {
+  if (/^(netease|qq|kugou|qishui|spotify)$/.test(String(mode || ''))) return [mode];
+  var providers = ['netease', 'qq', 'kugou', 'qishui'];
+  if (hasPlatformLogin('spotify') && !(spotifyLoginStatus && spotifyLoginStatus.reauthRequired)) providers.push('spotify');
+  return prioritizeSearchProviders(providers);
 }
 function musicSearchProviderUrl(provider, q, limit, offset) {
   var suffix = '&limit=' + Math.max(1, Number(limit) || 12) + '&offset=' + Math.max(0, Number(offset) || 0);
@@ -19380,12 +19493,6 @@ function musicSearchProviderUrl(provider, q, limit, offset) {
   if (provider === 'qishui') return '/api/qishui/search?keywords=' + encodeURIComponent(q) + suffix;
   if (provider === 'spotify') return '/api/spotify/search?keywords=' + encodeURIComponent(q) + suffix;
   return '/api/search?keywords=' + encodeURIComponent(q) + suffix;
-}
-function musicSearchProviders(mode) {
-  if (/^(netease|qq|kugou|qishui|spotify)$/.test(String(mode || ''))) return [mode];
-  var providers = ['netease', 'qq', 'kugou', 'qishui'];
-  if (hasPlatformLogin('spotify') && !(spotifyLoginStatus && spotifyLoginStatus.reauthRequired)) providers.push('spotify');
-  return providers;
 }
 async function fetchMusicSearchResults(q, mode) {
   var providers = musicSearchProviders(mode);
@@ -19410,7 +19517,7 @@ async function fetchMusicSearchResults(q, mode) {
   );
 }
 function renderSongSearchResults(songs) {
-  playlist = songs || [];
+  playlist = filterVisibleSearchResults(songs);
   var resultCount = playlist.length;
   var batchCount = dedupeSearchBatchSongs(playlist).length;
   var batchToolbar = '<div class="search-batch-toolbar" role="toolbar" aria-label="搜索结果批量操作">' +
@@ -19479,7 +19586,10 @@ function dedupeSearchBatchSongs(songs) {
       return;
     }
     var existingIndex = indexes[key];
-    if (songProviderKey(out[existingIndex]) === 'qq' && songProviderKey(song) === 'netease') out[existingIndex] = song;
+    var preferredProvider = primarySearchProvider();
+    if (preferredProvider && songProviderKey(out[existingIndex]) !== preferredProvider && songProviderKey(song) === preferredProvider) {
+      out[existingIndex] = song;
+    }
   });
   return out;
 }
@@ -20653,6 +20763,7 @@ function handlePlaybackUnavailable(song, data) {
   var provider = playbackLoginProvider(song);
   var restriction = (data && data.restriction) || {};
   var category = (data && data.reason) || restriction.category || '';
+  rememberUnavailableSearchResult(song, category);
   showToast(playbackRestrictionMessage(song, data));
   if (category === 'login_required') {
     setTimeout(function(){
@@ -20931,12 +21042,14 @@ async function playQueueAt(idx, opts) {
     }
     if (!data.url) {
       if (isQQPlayback && await retryQQPlaybackWithCompatibleQuality(song, idx, token, Object.assign({}, opts, { context: playbackContext }), data, requestedQuality)) return true;
+      rememberUnavailableSearchResult(song, data.reason || (data.restriction && data.restriction.category));
       var fallbackResult = await tryAutoPlaybackFallback(song, data, idx, token, Object.assign({}, opts, { context: playbackContext }));
       if (fallbackResult === true) return true;
       if (fallbackResult === false) return false;
       if (!opts.suppressPlayFailureNotice) handlePlaybackUnavailable(song, data);
       return false;
     }
+    forgetUnavailableSearchResult(song);
     var resolvedQualityText = playbackResolvedQualityText(data);
     if (!isQQPlayback && playbackQualityWasDowngraded(requestedQuality, data.level)) {
       showSourceFallbackNotice(playbackProviderLabel(song) + '音质自动降级', '请求 ' + playbackQualityLabel(requestedQuality) + '，实际播放 ' + resolvedQualityText + '。');
@@ -20984,6 +21097,7 @@ async function playQueueAt(idx, opts) {
       scheduleAudioResumePosition(audio, opts.resumeAt, token);
       audio.load();
     }
+    lastAudioPlayFailureCategory = '';
     var playbackStarted = null;
     if (preparedTransition) {
       markPlayPhase('transition-audio-start');
@@ -21091,6 +21205,7 @@ async function playQueueAt(idx, opts) {
       if (preparedTransition && typeof preparedTransition.onRejected === 'function') preparedTransition.onRejected('playback-start-failed');
       notifyPreparedTransitionSettled('playback-start-failed');
       if (isQQPlayback && await retryQQPlaybackWithCompatibleQuality(song, idx, token, Object.assign({}, opts, { context: playbackContext }), data, requestedQuality)) return true;
+      if (lastAudioPlayFailureCategory === 'url_unavailable') rememberUnavailableSearchResult(song, 'url_unavailable');
       var startFallbackResult = await tryAutoPlaybackFallback(song, {
         reason: 'url_unavailable',
         message: '音频地址已返回，但播放器未能启动'
@@ -21321,8 +21436,20 @@ function playbackAttemptStillCurrent(media, token) {
     && playbackMediaMatchesCurrentQueueItem(media)
   );
 }
+var lastAudioPlayFailureCategory = '';
+function classifyAudioPlayFailure(error, media) {
+  var name = String(error && error.name || '');
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'interaction_required';
+  if (name === 'AbortError') return 'interrupted';
+  var mediaErrorCode = Number(media && media.error && media.error.code) || 0;
+  if (name === 'NotSupportedError' || name === 'EncodingError' || mediaErrorCode === 2 || mediaErrorCode === 3 || mediaErrorCode === 4) {
+    return 'url_unavailable';
+  }
+  return 'unknown';
+}
 async function attemptAudioPlay(opts) {
   opts = opts || {};
+  lastAudioPlayFailureCategory = '';
   var expectedToken = opts.expectedToken == null ? trackSwitchToken : Number(opts.expectedToken);
   var expectedMedia = opts.expectedMedia || audio;
   try {
@@ -21356,9 +21483,11 @@ async function attemptAudioPlay(opts) {
     });
     forcePlaybackControlsInteractive();
     hideLoading();
+    lastAudioPlayFailureCategory = '';
     return true;
   } catch (err) {
     if (!playbackAttemptStillCurrent(expectedMedia, expectedToken)) return false;
+    lastAudioPlayFailureCategory = classifyAudioPlayFailure(err, expectedMedia);
     console.warn('Audio play blocked:', err && (err.message || err));
     if (!opts.trackSwitch && !opts.resumeRecovery) {
       var resumed = await recoverCurrentTrackPlaybackFromFreshUrl('play-rejected', {

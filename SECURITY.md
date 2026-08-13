@@ -4,7 +4,7 @@
 
 当前只维护最新公开版本。
 
-当前维护的源码与稳定二进制版本为 `3.0.1`；安装包只通过 `dh666i/Mineradio` Releases 发布。
+当前维护的源码与稳定二进制版本为 `3.0.2`；安装包只通过 `dh666i/Mineradio` Releases 发布。
 
 ## Installer Safety Notice
 
@@ -14,7 +14,7 @@
 
 `v1.5.4` 的旧更新器会拒绝打开无签名安装包，因此从该版本升级到 `v3.0.1` 时必须手动下载并覆盖安装。
 
-`v3.0.1` 的 macOS x64 / arm64 文件属于预览包，只使用无开发者身份的 ad-hoc 本地完整性签名，未进行 Apple Developer ID 签名或 Apple 公证。首次打开可能需要通过 Finder 右键“打开”或“系统设置 > 隐私与安全性”手动放行。
+`v3.0.2` 的 macOS x64 / arm64 文件属于预览包，只使用无开发者身份的 ad-hoc 本地完整性签名，未进行 Apple Developer ID 签名或 Apple 公证。首次打开可能需要通过 Finder 右键“打开”或“系统设置 > 隐私与安全性”手动放行。
 
 ## Reporting a Vulnerability
 

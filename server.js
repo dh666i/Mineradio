@@ -2452,6 +2452,8 @@ function mapSongRecord(s) {
   s = s || {};
   const artists = mapArtists(s.ar || s.artists);
   const album = s.al || s.album || {};
+  const privilege = s.privilege && typeof s.privilege === 'object' ? s.privilege : null;
+  const unavailable = Number(s.st) < 0 || Number(s.status) < 0 || !!s.noCopyrightRcmd || !!(privilege && Number(privilege.st) < 0);
   return {
     provider: 'netease',
     source: 'netease',
@@ -2466,6 +2468,8 @@ function mapSongRecord(s) {
     cover: album.picUrl || album.coverUrl || '',
     duration: s.dt || s.duration || 0,
     fee: s.fee,
+    unavailable,
+    availability: unavailable ? 'unavailable' : 'unknown',
   };
 }
 function mapAlbumRecord(raw) {
@@ -4030,7 +4034,7 @@ function mapQQArtists(raw) {
 
 function mapQQSmartSong(item) {
   item = item || {};
-  const mid = item.mid || item.songmid || item.id || '';
+  const mid = item.mid || item.songmid || '';
   return {
     provider: 'qq',
     source: 'qq',
@@ -4246,7 +4250,7 @@ async function handleQQArtistDetail(mid, limit, offset) {
 async function handleQQSearch(keywords, limit, offset) {
   const kw = String(keywords || '').trim();
   const pageOffset = Math.max(0, Number(offset || 0) || 0);
-  if (!kw) return { songs: [], total: 0, offset: pageOffset, limit, hasMore: false, pagination: 'local' };
+  if (!kw) return { songs: [], total: 0, rawCount: 0, offset: pageOffset, limit, nextOffset: pageOffset, hasMore: false, pagination: 'local' };
   console.log('[QQSearch]', kw, 'limit:', limit, 'offset:', pageOffset);
   const base = await qqSmartboxSearch(kw, 50);
   const page = base.slice(pageOffset, pageOffset + limit);
@@ -4259,7 +4263,7 @@ async function handleQQSearch(keywords, limit, offset) {
   }));
   const seen = new Set();
   const songs = detailed.filter(song => {
-    const key = song && (song.mid || song.id || (song.name + '|' + song.artist));
+    const key = song && song.mid;
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return !!song.name;
@@ -4267,8 +4271,10 @@ async function handleQQSearch(keywords, limit, offset) {
   return {
     songs,
     total: base.length,
+    rawCount: page.length,
     offset: pageOffset,
     limit,
+    nextOffset: pageOffset + page.length,
     hasMore: pageOffset + page.length < base.length,
     pagination: 'local',
   };
